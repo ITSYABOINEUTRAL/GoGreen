@@ -605,3 +605,6 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 <!-- handsoff-issue-15 -->
 - #15: Add tests for the RewardToken vesting index and vested_balance accounting
+
+<!-- handsoff-issue-1 -->
+- #1: Add tests for the pause/unpause circuit breaker in contract/src/lib.rs
