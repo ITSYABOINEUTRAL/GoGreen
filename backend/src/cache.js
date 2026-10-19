@@ -97,4 +97,4 @@ async function invalidateProducts() {
   await delByPattern('products:*');
 }
 
-module.exports = { get, set, del, delByPattern, invalidateProducts, isReady, DEFAULT_TTL_SECONDS };
+module.exports = { get, set, del, delByPattern, invalidateProducts, isReady };

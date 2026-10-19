@@ -68,7 +68,10 @@ jobs:
           restore-keys: ${{ runner.os }}-backend-
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests with coverage
         run: npm run test:coverage
+
+      - name: Run lint
+        run: npm run lint
