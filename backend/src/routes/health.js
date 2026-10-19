@@ -1,5 +1,8 @@
 const router = require('express').Router();
 const { checkSorobanRPC } = require('../utils/stellar');
+const db = require('../db/schema');
+const cache = require('../cache');
+const config = require('../config');
 
 // Basic health check
 router.get('/health', (_, res) => {
@@ -47,6 +50,47 @@ router.get('/health/detailed', async (req, res) => {
       }
     });
   }
+});
+
+// Readiness probe — reports DB, cache and Stellar configuration state
+router.get('/health/ready', async (req, res) => {
+  const result = {
+    database: { status: 'unknown' },
+    cache: { status: 'unknown' },
+    stellar: { status: 'unknown' },
+  };
+
+  // Database probe
+  try {
+    await db.query('SELECT 1');
+    result.database.status = 'ready';
+  } catch (e) {
+    result.database.status = 'unavailable';
+    result.database.error = e.message;
+  }
+
+  // Cache probe
+  if (!config.redisUrl) {
+    result.cache.status = 'disabled';
+  } else if (cache.isReady()) {
+    result.cache.status = 'ready';
+  } else {
+    result.cache.status = 'unavailable';
+  }
+
+  // Stellar / Soroban configuration probe
+  const stellarConfigured = !!(
+    config.stellarNetwork &&
+    config.sorobanEscrowContractId
+  );
+  result.stellar.status = stellarConfigured ? 'configured' : 'missing';
+  if (!stellarConfigured) {
+    result.stellar.detail = 'SOROBAN_ESCROW_CONTRACT_ID or STELLAR_NETWORK not set';
+  }
+
+  // 503 when any required dependency is unavailable
+  const isReady = result.database.status === 'ready';
+  res.status(isReady ? 200 : 503).json(result);
 });
 
 module.exports = router;

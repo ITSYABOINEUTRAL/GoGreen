@@ -94,4 +94,4 @@ async function invalidateProducts() {
   await delByPattern('products:*');
 }
 
-module.exports = { get, set, del, delByPattern, invalidateProducts };
+module.exports = { get, set, del, delByPattern, invalidateProducts, isReady };

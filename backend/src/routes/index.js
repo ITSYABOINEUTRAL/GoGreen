@@ -424,6 +424,9 @@ registerRoute('/', '/disputes', require('./disputes'));
 
 registerRoute('/', '/categories', require('./categories'));
 
+// Readiness probe (issue #94)
+router.use('/', require('./health'));
+
 /* … truncated 6657 chars — edit only what you need near the top … */
 
 module.exports = router;
