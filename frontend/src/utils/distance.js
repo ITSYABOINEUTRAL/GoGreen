@@ -1,4 +1,13 @@
+function isValidCoord(lat1, lng1, lat2, lng2) {
+  if (!Number.isFinite(lat1) || !Number.isFinite(lng1) ||
+      !Number.isFinite(lat2) || !Number.isFinite(lng2)) return false;
+  if (lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90) return false;
+  if (lng1 < -180 || lng1 > 180 || lng2 < -180 || lng2 > 180) return false;
+  return true;
+}
+
 export function calculateHaversineDistance(lat1, lng1, lat2, lng2) {
+  if (!isValidCoord(lat1, lng1, lat2, lng2)) return null;
   const R = 6371; // Earth's radius in km
   const toRad = (value) => (value * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);

@@ -3,6 +3,8 @@
 // Requires: npm install ioredis
 const logger = require('./logger');
 
+const DEFAULT_TTL_SECONDS = 300; // 5 minutes
+
 let client = null;
 
 if (process.env.REDIS_URL) {
@@ -56,8 +58,9 @@ async function get(key) {
 
 async function set(key, value, ttlSeconds) {
   if (!isReady()) return;
+  const ttl = (typeof ttlSeconds === 'number' && ttlSeconds > 0) ? ttlSeconds : DEFAULT_TTL_SECONDS;
   try {
-    await client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+    await client.set(key, JSON.stringify(value), 'EX', ttl);
   } catch (err) {
     logCacheError('set error', err);
   }
