@@ -608,3 +608,6 @@ For security vulnerabilities, follow the process in [SECURITY.md](./SECURITY.md)
 
 <!-- handsoff-issue-1 -->
 - #1: Add tests for the pause/unpause circuit breaker in contract/src/lib.rs
+
+<!-- handsoff-issue-3 -->
+- #3: Add tests for the partial-refund path (RefundedAmount) in contract/src/lib.rs
