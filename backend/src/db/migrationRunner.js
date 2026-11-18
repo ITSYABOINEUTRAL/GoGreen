@@ -31,6 +31,7 @@ const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');
  * `{ rows: [], rowCount: info.changes }`.
  */
 function getAdapter(dialect, dbPathOrInstance) {
+  // Accept only 'postgres' and 'sqlite'. Reject others.
   if (dialect === 'postgres') {
     const { Pool } = require('pg');
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -41,6 +42,11 @@ function getAdapter(dialect, dbPathOrInstance) {
       exec: (sql) => pool.query(sql),
       close: () => pool.end(),
     };
+  }
+
+  // Only 'sqlite' is supported for the non-postgres path. Other dialects are rejected.
+  if (dialect !== 'sqlite') {
+    throw new Error(`Unsupported dialect: ${dialect}`);
   }
 
   const Database = require('better-sqlite3');

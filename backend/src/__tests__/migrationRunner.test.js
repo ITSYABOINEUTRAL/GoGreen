@@ -4,6 +4,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { runMigrations, getPendingFiles } = require('../db/migrationRunner');
 const { resolveUndoPath, getAdapter } = require('../../migrate');
+const { getAdapter: runnerGetAdapter } = require('../db/migrationRunner');
 
 describe('migration runner failure recovery', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'migrations-'));
@@ -165,5 +166,40 @@ describe('migrate.js SQLite adapter SELECT/WITH detection', () => {
   it('routes a DELETE to the write path and returns rowCount with empty rows', async () => {
     const result = await adapter.query('DELETE FROM items WHERE id = ?', [1]);
     expect(result).toEqual({ rows: [], rowCount: 1 });
+  });
+});
+
+describe('getAdapter dialect validation and sqlite instance support', () => {
+  const cases = [
+    ['postgresql', 'Unsupported dialect: postgresql'],
+    ['mysql', 'Unsupported dialect: mysql'],
+    ['', 'Unsupported dialect: '],
+    [undefined, 'Unsupported dialect: undefined'],
+    [null, 'Unsupported dialect: null'],
+  ];
+
+  test.each(cases)('rejects invalid dialect %p with exact message', (input, expected) => {
+    expect(() => runnerGetAdapter(input, ':memory:')).toThrow(new Error(expected));
+  });
+
+  test('in-memory better-sqlite3 instance supports exec and query and returns exact rows', () => {
+    const Database = require('better-sqlite3');
+    const mem = new Database(':memory:');
+    const adapter = runnerGetAdapter('sqlite', mem);
+
+    try {
+      // exec should create a table without throwing
+      expect(() => adapter.exec('CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT);')).not.toThrow();
+
+      // insert one exact row
+      mem.prepare('INSERT INTO test (id, name) VALUES (?, ?)').run(1, 'alice');
+
+      const res = adapter.query('SELECT id, name FROM test WHERE id = ?', [1]);
+      expect(res).toHaveProperty('rows');
+      expect(res.rows).toEqual([{ id: 1, name: 'alice' }]);
+    } finally {
+      // guarantee cleanup
+      adapter.close();
+    }
   });
 });
