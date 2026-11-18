@@ -19,29 +19,37 @@ const { startAnonymizeJob } = require('./jobs/anonymizeDeactivatedUsers');
 const { startAuctionJob } = require('./jobs/auctionCron');
 const { start: startPaymentConfirmationJob } = require('./jobs/confirmPayments');
 const { createBackup } = require('./scripts/backup');
-const PORT = process.env.PORT || 4000;
 
-app.listen(PORT, () => {
-  logger.info(`Backend running on http://localhost:${PORT}`);
-  // Background jobs run only in the process started with RUN_JOBS=true (#1367).
-  startJobs();
-  startSubscriptionJob();
-  startFailedEmailCleanupJob();
-  startProductViewsAggJob();
-  startFreshnessJob();
-  startContractMonitor();
-  startContractRegistrySync();
-  startCreatorEarningsMonitor();
-  startPushSubscriptionCleanup();
-  startAnonymizeJob();
-  startExpiryJob();
-  startAuctionJob();
-  startPaymentConfirmationJob();
+const PORT = process.env.PORT || 4000;
+/** Bound for server.close(); must stay below PM2 kill_timeout (5000). */
+const CLOSE_TIMEOUT_MS = 4000;
+
+function installGracefulShutdown(server) {
+  const shutdown = (signal) => {
+    logger.info(`Received ${signal}, closing HTTP server`);
+    const force = setTimeout(() => {
+      logger.error('Forced exit after close timeout');
+      process.exit(1);
+    }, CLOSE_TIMEOUT_MS);
+    force.unref?.();
+    server.close(() => {
+      clearTimeout(force);
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
 async function start() {
   await db.ready;
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     logger.info(`Backend running on http://localhost:${PORT}`);
-    app.locals.startBackgroundJobs();
+    if (typeof app.locals.startBackgroundJobs === 'function') {
+      app.locals.startBackgroundJobs();
+    } else {
+      startJobs();
+    }
     startSubscriptionJob();
     startFailedEmailCleanupJob();
     startProductViewsAggJob();
@@ -53,6 +61,7 @@ async function start() {
     startAnonymizeJob();
     startExpiryJob();
     startAuctionJob();
+    startPaymentConfirmationJob();
 
     cron.schedule('0 0 * * *', async () => {
       logger.info('Starting scheduled daily backup');
@@ -69,9 +78,16 @@ async function start() {
 
     logger.info('Daily backup cron job scheduled at midnight UTC');
   });
+
+  installGracefulShutdown(server);
+  return server;
 }
 
-start().catch((error) => {
-  logger.error('Backend startup failed:', { error: error.message });
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  start().catch((error) => {
+    logger.error('Backend startup failed:', { error: error.message });
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { start, CLOSE_TIMEOUT_MS, installGracefulShutdown };

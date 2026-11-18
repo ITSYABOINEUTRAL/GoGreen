@@ -10,6 +10,7 @@ const { sanitizeText } = require('../utils/sanitize');
 const { rewriteImageUrl } = require('../utils/cdn');
 const { sendBackInStockEmail } = require('../utils/mailer');
 const AutomaticOrderProcessor = require('../services/AutomaticOrderProcessor');
+const WaitlistService = require('../services/WaitlistService');
 const logger = require('../logger');
 const { stockClients, broadcastStockUpdate } = require('../utils/stockUpdates');
 
@@ -562,13 +563,22 @@ async function restockProduct(req, res) {
 
     const response = { success: true, message: 'Restocked successfully' };
     if (waitlistResults) {
-      response.waitlist = {
-        processed: waitlistResults.processed || 0,
-        skipped: waitlistResults.skipped || 0,
-        totalEntries: waitlistResults.totalEntries || 0,
-        remainingStock: waitlistResults.remainingStock || quantity,
-        errors: waitlistResults.errors || [],
-      };
+      if (waitlistResults.success === false) {
+        response.waitlist = {
+          success: false,
+          error: waitlistResults.error,
+          code: waitlistResults.code,
+        };
+      } else {
+        response.waitlist = {
+          success: true,
+          processed: waitlistResults.processed || 0,
+          skipped: waitlistResults.skipped || 0,
+          totalEntries: waitlistResults.totalEntries || 0,
+          remainingStock: waitlistResults.remainingStock || quantity,
+          errors: waitlistResults.errors || [],
+        };
+      }
     }
     res.json(response);
   } catch (error) {
@@ -898,6 +908,21 @@ router.get('/:id/batches', async (req, res) => {
     [prodRows[0].batch_id],
   );
   res.json({ success: true, data: rows });
+});
+
+
+// DELETE /api/products/:id/waitlist — leave waitlist
+router.delete('/:id/waitlist', auth, async (req, res) => {
+  if (req.user.role !== 'buyer') return err(res, 403, 'Only buyers can leave waitlists', 'forbidden');
+  try {
+    const service = new WaitlistService();
+    const result = await service.leaveWaitlist(req.user.id, parseInt(req.params.id, 10));
+    if (!result.success) return err(res, 400, result.error, result.code || 'waitlist_error');
+    res.json({ success: true, message: result.message || 'Left waitlist' });
+  } catch (error) {
+    logger.error('[Waitlist] leave failed', { error: error.message });
+    return err(res, 500, 'Internal server error', 'internal_error');
+  }
 });
 
 module.exports = router;
