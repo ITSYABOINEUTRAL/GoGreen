@@ -40,6 +40,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Check demo/script source references
+        working-directory: .
+        run: node backend/scripts/check-script-references.js
+
       - name: Run tests with coverage
         run: npm run test:coverage
 

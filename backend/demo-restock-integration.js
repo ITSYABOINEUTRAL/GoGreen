@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 
 // Import the enhanced restock router
-const restockRouter = require('./src/routes/products_restock_only');
+const restockRouter = require('./src/routes/products');
 app.use('/api/products', restockRouter);
 
 console.log('=== Enhanced Restock Endpoint Demo ===\n');
