@@ -8,6 +8,30 @@ const s = {
   msg: { padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 14 },
 };
 
+export function validateAuctionForm(form) {
+  const productId = parseInt(form.product_id, 10);
+  if (!Number.isFinite(productId) || productId <= 0) {
+    return { ok: false, message: 'Select a valid product.' };
+  }
+
+  const startPrice = parseFloat(form.start_price);
+  if (!Number.isFinite(startPrice) || startPrice <= 0) {
+    return { ok: false, message: 'Starting price must be a positive number.' };
+  }
+
+  const reservePrice = form.reserve_price !== '' ? parseFloat(form.reserve_price) : null;
+  if (reservePrice !== null && (!Number.isFinite(reservePrice) || reservePrice < startPrice)) {
+    return { ok: false, message: 'Reserve price must be greater than or equal to the starting price.' };
+  }
+
+  const endsAt = new Date(form.ends_at);
+  if (Number.isNaN(endsAt.getTime()) || endsAt <= new Date()) {
+    return { ok: false, message: 'End time must be in the future.' };
+  }
+
+  return { ok: true, productId, startPrice, reservePrice, endsAt };
+}
+
 export default function AuctionManager({ products }) {
   const [form, setForm] = useState({ product_id: '', start_price: '', reserve_price: '', ends_at: '' });
   const [msg, setMsg] = useState(null);
@@ -16,24 +40,17 @@ export default function AuctionManager({ products }) {
     e.preventDefault();
     setMsg(null);
 
-    // Client-side validation: end time must be in the future
-    const endsAt = new Date(form.ends_at);
-    if (endsAt <= new Date()) {
-      setMsg({ type: 'err', text: 'End time must be in the future.' });
+    const validation = validateAuctionForm(form);
+    if (!validation.ok) {
+      setMsg({ type: 'err', text: validation.message });
       return;
     }
 
-    // Client-side validation: reserve price must be ≥ starting price (when provided)
-    const startPrice = parseFloat(form.start_price);
-    const reservePrice = form.reserve_price !== '' ? parseFloat(form.reserve_price) : null;
-    if (reservePrice !== null && reservePrice < startPrice) {
-      setMsg({ type: 'err', text: 'Reserve price must be greater than or equal to the starting price.' });
-      return;
-    }
+    const { productId, startPrice, reservePrice, endsAt } = validation;
 
     try {
       const payload = {
-        product_id: parseInt(form.product_id),
+        product_id: productId,
         start_price: startPrice,
         ends_at: endsAt.toISOString(),
       };

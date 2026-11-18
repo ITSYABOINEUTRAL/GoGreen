@@ -1,5 +1,16 @@
 import React from 'react';
 
+export function formatCount(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  return String(value);
+}
+
+export function formatXlm(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '0.00';
+  return num.toFixed(2);
+}
+
 /**
  * AdminAnalyticsSummary — renders the platform-level stat cards (users, products,
  * orders, revenue, fee-bumps) at the top of the admin dashboard.
@@ -31,26 +42,26 @@ export default function AdminAnalyticsSummary({ stats }) {
   };
 
   return (
-    <div style={s.grid}>
+    <div style={s.grid} data-testid="admin-analytics-summary">
       <div style={s.stat}>
-        <div style={s.statVal}>{stats.users}</div>
+        <div style={s.statVal}>{formatCount(stats.users)}</div>
         <div style={s.statLabel}>Total Users</div>
       </div>
       <div style={s.stat}>
-        <div style={s.statVal}>{stats.products}</div>
+        <div style={s.statVal}>{formatCount(stats.products)}</div>
         <div style={s.statLabel}>Products Listed</div>
       </div>
       <div style={s.stat}>
-        <div style={s.statVal}>{stats.orders}</div>
+        <div style={s.statVal}>{formatCount(stats.orders)}</div>
         <div style={s.statLabel}>Total Orders</div>
       </div>
       <div style={s.stat}>
-        <div style={s.statVal}>{Number(stats.total_revenue_xlm).toFixed(2)}</div>
+        <div style={s.statVal}>{formatXlm(stats.total_revenue_xlm)}</div>
         <div style={s.statLabel}>Revenue (XLM)</div>
       </div>
       {stats.fee_bump_enabled && (
         <div style={s.stat}>
-          <div style={s.statVal}>{stats.fee_bump_count ?? 0}</div>
+          <div style={s.statVal}>{formatCount(stats.fee_bump_count ?? 0)}</div>
           <div style={s.statLabel}>Fee Bumps Used</div>
         </div>
       )}

@@ -60,6 +60,19 @@ fn dummy_product(env: &Env) -> (Bytes, i128) {
     (Bytes::from_array(env, b"wheat"), 1_000_000i128)
 }
 
+fn escrow_ttl(env: &Env, contract_id: &Address, order_id: u64) -> u32 {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Escrow(order_id))
+    })
+}
+
+fn assert_ttl_in_range(ttl: u32) {
+    assert!(ttl >= TTL_MIN, "ttl {} below TTL_MIN", ttl);
+    assert!(ttl <= TTL_MAX, "ttl {} above TTL_MAX", ttl);
+}
+
 // ── #469 ─────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -292,6 +305,63 @@ fn test_ttl_extended_after_deposit_entry_is_readable() {
     let record = client.get_escrow(&order_id).unwrap();
     assert_eq!(record.amount, 1_000_000);
     assert_eq!(record.status, EscrowStatus::Active);
+
+    let contract_id = client.address.clone();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
+}
+
+#[test]
+fn test_ttl_within_bounds_after_release() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, EscrowContract);
+    let client = EscrowContractClient::new(&env, &contract_id);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 41;
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id,
+            &buyer,
+            &farmer,
+            &1_000_000,
+            &future_timeout(&env),
+            &pname,
+            &price,
+        )
+        .unwrap();
+    client.release(&order_id, &pname, &price).unwrap();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
+}
+
+#[test]
+fn test_ttl_within_bounds_after_open_dispute() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, EscrowContract);
+    let client = EscrowContractClient::new(&env, &contract_id);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 42;
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id,
+            &buyer,
+            &farmer,
+            &1_000_000,
+            &future_timeout(&env),
+            &pname,
+            &price,
+        )
+        .unwrap();
+    client.open_dispute(&order_id, &buyer, &None).unwrap();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
 }
 
 #[test]
@@ -313,6 +383,9 @@ fn test_ttl_extended_after_refund_entry_is_settled_not_evicted() {
         .unwrap();
     advance_past_timeout(&env, timeout);
     client.refund(&order_id, &None).unwrap();
+
+    let contract_id = client.address.clone();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
 
     let result = client.try_refund(&order_id, &None);
     assert_eq!(result, Err(Ok(EscrowError::AlreadySettled)));
