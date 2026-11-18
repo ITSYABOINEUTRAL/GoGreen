@@ -2,11 +2,17 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import vm from 'node:vm';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const swPath = resolve(__dirname, '../../public/sw.js');
 const swSource = readFileSync(swPath, 'utf8');
+
+function getPublicApiAllowlist() {
+  const block = swSource.match(/const PUBLIC_API_ALLOWLIST = (\[[\s\S]*?\]);/);
+  if (!block) throw new Error('PUBLIC_API_ALLOWLIST not found in sw.js');
+  return vm.runInNewContext(block[1], { RegExp });
+}
 
 // In-memory Cache Storage stub keyed by cache name.
 function createCachesStub() {
@@ -54,7 +60,7 @@ function createCachesStub() {
   };
 }
 
-function loadServiceWorker() {
+function loadServiceWorker({ fetchImpl } = {}) {
   const caches = createCachesStub();
   const listeners = {};
   const self = {
@@ -73,7 +79,7 @@ function loadServiceWorker() {
     clients: self.clients,
     location: self.location,
     console,
-    fetch: async () => ({ ok: true }),
+    fetch: fetchImpl || (async () => ({ ok: true, status: 200, clone: () => ({}) })),
     Request: class Request {
       constructor(url, init = {}) {
         this.url = url;
@@ -81,7 +87,23 @@ function loadServiceWorker() {
         this.headers = new Map(Object.entries(init.headers || {}));
       }
     },
-    Response: class Response {},
+    Response: class Response {
+      constructor(body, init = {}) {
+        this.body = body;
+        this.status = init.status ?? 200;
+        this.headers = init.headers || {};
+        this.ok = this.status >= 200 && this.status < 300;
+      }
+      clone() {
+        return new sandbox.Response(this.body, {
+          status: this.status,
+          headers: this.headers,
+        });
+      }
+      async json() {
+        return JSON.parse(this.body);
+      }
+    },
     URL,
     Promise,
     Map,
@@ -105,10 +127,11 @@ function loadServiceWorker() {
   return { sandbox, caches, listeners };
 }
 
-function makeRequest(url, { method = 'GET', headers = {} } = {}) {
+function makeRequest(url, { method = 'GET', headers = {}, mode = 'cors' } = {}) {
   return {
     url,
     method,
+    mode,
     headers: {
       get(name) {
         const key = Object.keys(headers).find(
@@ -120,6 +143,24 @@ function makeRequest(url, { method = 'GET', headers = {} } = {}) {
   };
 }
 
+function requestUrl(request) {
+  return new URL(request.url);
+}
+
+async function invokeFetchHandler(sw, request, options = {}) {
+  const handler = sw.listeners.fetch;
+  expect(handler).toBeTypeOf('function');
+  let responsePromise;
+  const event = {
+    request,
+    respondWith(promise) {
+      responsePromise = promise;
+    },
+  };
+  handler(event);
+  return responsePromise;
+}
+
 describe('service worker API cache allowlist', () => {
   let sw;
 
@@ -127,7 +168,8 @@ describe('service worker API cache allowlist', () => {
     sw = loadServiceWorker();
   });
 
-  it('exposes isCacheableApiRequest and clearUserCache', () => {
+  it('exposes PUBLIC_API_ALLOWLIST, isCacheableApiRequest and clearUserCache', () => {
+    expect(getPublicApiAllowlist()).toHaveLength(3);
     expect(typeof sw.sandbox.isCacheableApiRequest).toBe('function');
     expect(typeof sw.sandbox.clearUserCache).toBe('function');
   });
@@ -136,28 +178,81 @@ describe('service worker API cache allowlist', () => {
     const request = makeRequest('https://example.com/api/v1/products', {
       method: 'POST',
     });
-    expect(sw.sandbox.isCacheableApiRequest(request)).toBe(false);
+    const url = requestUrl(request);
+    expect(sw.sandbox.isCacheableApiRequest(request, url)).toBe(false);
   });
 
   it('returns false for GET requests carrying an Authorization header', () => {
     const request = makeRequest('https://example.com/api/v1/products', {
       headers: { Authorization: 'Bearer token' },
     });
-    expect(sw.sandbox.isCacheableApiRequest(request)).toBe(false);
+    const url = requestUrl(request);
+    expect(sw.sandbox.isCacheableApiRequest(request, url)).toBe(false);
   });
 
   it('returns true for allowlisted unauthenticated GET requests', () => {
-    for (const path of ['/api/v1/products', '/api/v1/categories', '/api/v1/rates']) {
+    for (const path of [
+      '/api/v1/products',
+      '/api/v1/products/42',
+      '/api/v1/categories',
+      '/api/v1/rates',
+    ]) {
       const request = makeRequest(`https://example.com${path}`);
-      expect(sw.sandbox.isCacheableApiRequest(request)).toBe(true);
+      expect(sw.sandbox.isCacheableApiRequest(request, requestUrl(request))).toBe(
+        true
+      );
     }
   });
 
   it('returns false for non-allowlisted API paths', () => {
-    for (const path of ['/api/wallet', '/api/orders', '/api/messages']) {
+    for (const path of ['/api/v1/orders', '/api/v1/wallet', '/api/messages']) {
       const request = makeRequest(`https://example.com${path}`);
-      expect(sw.sandbox.isCacheableApiRequest(request)).toBe(false);
+      expect(sw.sandbox.isCacheableApiRequest(request, requestUrl(request))).toBe(
+        false
+      );
     }
+  });
+});
+
+describe('service worker product listing fetch branch', () => {
+  it('returns 503 offline JSON when cache and network are unavailable', async () => {
+    const sw = loadServiceWorker({
+      fetchImpl: () => Promise.reject(new Error('offline')),
+    });
+    const request = makeRequest('https://example.com/api/products');
+    const response = await invokeFetchHandler(sw, request);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'offline' });
+  });
+
+  it('does not cache product responses that carry an Authorization header', async () => {
+    const putSpy = vi.fn();
+    const sw = loadServiceWorker({
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        clone() {
+          return { ok: true, status: 200 };
+        },
+      }),
+    });
+    const originalOpen = sw.caches.open.bind(sw.caches);
+    sw.caches.open = async (name) => {
+      const cache = await originalOpen(name);
+      const originalPut = cache.put.bind(cache);
+      cache.put = async (...args) => {
+        putSpy(...args);
+        return originalPut(...args);
+      };
+      return cache;
+    };
+
+    const request = makeRequest('https://example.com/api/products', {
+      headers: { Authorization: 'Bearer secret' },
+    });
+    await invokeFetchHandler(sw, request);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(putSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -104,19 +104,25 @@ self.addEventListener('fetch', (event) => {
 
   // Product listing API: stale-while-revalidate
   if (url.pathname.startsWith('/api/products') && request.method === 'GET') {
+    const cacheable = isCacheableApiRequest(request, url);
     event.respondWith(
       caches.match(request).then((cached) => {
         const fetchPromise = fetch(request).then((response) => {
-          if (response.ok && response.status === 200) {
+          if (cacheable && response.ok && response.status === 200) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
           return response;
         }).catch(() => null);
-        return cached || fetchPromise || new Response(JSON.stringify({ error: 'offline' }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        if (cached) return cached;
+        return fetchPromise.then(
+          (response) =>
+            response ||
+            new Response(JSON.stringify({ error: 'offline' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            })
+        );
       })
     );
     return;

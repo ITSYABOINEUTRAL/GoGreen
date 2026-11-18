@@ -3826,22 +3826,56 @@ mod test {
         let env = Env::default();
         let contract_id = env.register(EscrowContract, ());
         env.mock_all_auths();
-        env.clone().as_contract(&contract_id, || setup_admin_for(&env));
-        // One contract frame per call: require_auth may only be recorded once per frame.
-        env.clone().as_contract(&contract_id, || {
-        let contract_id = env.register(EscrowContract, ());
         env.clone().as_contract(&contract_id, || {
             setup_admin_for(&env);
             assert_eq!(
                 EscrowContract::set_min_deposit(env.clone(), MAX_MIN_DEPOSIT + 1),
                 Err(EscrowError::InvalidAmount)
             );
-        });
-        env.clone().as_contract(&contract_id, || {
             assert_eq!(
                 EscrowContract::set_min_deposit(env.clone(), i128::MAX),
                 Err(EscrowError::InvalidAmount)
             );
+        });
+    }
+
+    #[test]
+    fn set_min_deposit_accepts_max_boundary() {
+        let env = Env::default();
+        let contract_id = env.register(EscrowContract, ());
+        env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+            setup_admin_for(&env);
+            EscrowContract::set_min_deposit(env.clone(), MAX_MIN_DEPOSIT).unwrap();
+            assert_eq!(EscrowContract::get_min_deposit(env), MAX_MIN_DEPOSIT);
+        });
+    }
+
+    #[test]
+    fn deposit_below_configured_minimum_rejected() {
+        let env = Env::default();
+        let contract_id = env.register(EscrowContract, ());
+        env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+            setup_admin_for(&env);
+            let configured_min = 10_000_000_i128;
+            EscrowContract::set_min_deposit(env.clone(), configured_min).unwrap();
+            let token = Address::generate(&env);
+            let buyer = Address::generate(&env);
+            let farmer = Address::generate(&env);
+            let result = EscrowContract::deposit(
+                env,
+                token,
+                700,
+                buyer,
+                farmer,
+                configured_min - 1,
+                u64::MAX,
+                None,
+                0,
+                0,
+            );
+            assert_eq!(result, Err(EscrowError::BelowMinDeposit));
         });
     }
 
