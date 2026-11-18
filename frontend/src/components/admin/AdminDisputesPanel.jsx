@@ -1,5 +1,24 @@
 import React from 'react';
 
+export const DISPUTE_STATUS_STYLES = {
+  resolved: { color: '#2d6a4f', bg: '#d8f3dc' },
+  under_review: { color: '#7a5800', bg: '#ffeaa7' },
+  open: { color: '#555', bg: '#e8e8e8' },
+};
+
+export const DEFAULT_STATUS_STYLE = { color: '#555', bg: '#e8e8e8' };
+
+export const RESOLVABLE_STATUSES = new Set(['under_review', 'open']);
+
+export function formatStatus(status) {
+  if (!status) return 'unknown';
+  return String(status).replace('_', ' ');
+}
+
+export function disputeStatusStyle(status) {
+  return DISPUTE_STATUS_STYLES[status] ?? DEFAULT_STATUS_STYLE;
+}
+
 /**
  * AdminDisputesPanel — disputes table with resolve action.
  * Extracted from AdminDashboard.jsx (#1060).
@@ -16,9 +35,7 @@ export default function AdminDisputesPanel({ disputes = [], onResolve }) {
     td: { padding: '10px 12px', borderBottom: '1px solid #f0f0f0' },
     deactivate: { background: '#fee', color: '#c0392b', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 },
     badge: (status) => {
-      // #7a5800 on #ffeaa7 → 5.45:1 (was #b8860b → 2.72:1, failed WCAG AA)
-      const color = status === 'resolved' ? '#2d6a4f' : status === 'under_review' ? '#7a5800' : '#c0392b';
-      const bg = status === 'resolved' ? '#d8f3dc' : status === 'under_review' ? '#ffeaa7' : '#fee';
+      const { color, bg } = disputeStatusStyle(status);
       return { display: 'inline-block', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: bg, color };
     },
   };
@@ -55,7 +72,7 @@ export default function AdminDisputesPanel({ disputes = [], onResolve }) {
                 <td style={s.td}>{d.quantity}</td>
                 <td style={s.td}>{Number(d.total_price).toFixed(2)}</td>
                 <td style={s.td}>
-                  <span style={s.badge(d.status)}>{d.status.replace('_', ' ')}</span>
+                  <span style={s.badge(d.status)}>{formatStatus(d.status)}</span>
                 </td>
                 <td style={{ ...s.td, maxWidth: 160, wordBreak: 'break-word', fontSize: 13 }}>
                   {d.reason}
@@ -64,7 +81,7 @@ export default function AdminDisputesPanel({ disputes = [], onResolve }) {
                   {d.resolution || '—'}
                 </td>
                 <td style={s.td}>
-                  {d.status !== 'resolved' && (
+                  {RESOLVABLE_STATUSES.has(d.status) && (
                     <button style={s.deactivate} onClick={() => onResolve?.(d)}>
                       Resolve
                     </button>

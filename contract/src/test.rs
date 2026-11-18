@@ -861,6 +861,20 @@ fn test_upgrade_on_uninitialised_contract_panics() {
 }
 
 #[test]
+fn test_upgrade_by_non_admin_is_rejected() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    let admin = Address::generate(&env);
+    let fee_dest = Address::generate(&env);
+    client.initialize(&admin, &0u32, &fee_dest).unwrap();
+
+    env.mock_auths(&[]);
+    let dummy_hash = soroban_sdk::BytesN::from_array(&env, &[2u8; 32]);
+    assert!(client.try_upgrade(&dummy_hash).is_err());
+}
+
+#[test]
 fn test_upgrade_preserves_existing_escrow_state() {
     // After a successful upgrade call the persistent escrow entries are
     // still readable (upgrade only swaps WASM; storage is untouched).
