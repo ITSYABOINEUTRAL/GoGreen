@@ -303,4 +303,36 @@ mod tests {
         assert_eq!(record.order_id, 1u64);
         assert_eq!(record.verifier, verifier);
     }
+
+    #[test]
+    fn instance_ttl_extended_after_initialize_and_authorize() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CarbonOffsetContract, ());
+        let client = CarbonOffsetContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        let ttl_after_init = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert!(ttl_after_init >= TTL_MIN);
+
+        let verifier = Address::generate(&env);
+        client.authorize_offset(&2u64, &50u64, &verifier);
+        let ttl_after_auth = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert!(ttl_after_auth >= TTL_MIN);
+    }
+
+    #[test]
+    #[should_panic]
+    fn authorize_offset_requires_verifier_auth() {
+        let env = Env::default();
+        // Initialize with auths, then clear so authorize_offset cannot satisfy require_auth.
+        let contract_id = env.register(CarbonOffsetContract, ());
+        let client = CarbonOffsetContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        env.mock_all_auths();
+        client.initialize(&admin);
+        env.mock_auths(&[]);
+        let verifier = Address::generate(&env);
+        client.authorize_offset(&3u64, &10u64, &verifier);
+    }
 }

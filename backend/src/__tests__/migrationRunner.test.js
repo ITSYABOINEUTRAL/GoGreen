@@ -167,3 +167,40 @@ describe('migrate.js SQLite adapter SELECT/WITH detection', () => {
     expect(result).toEqual({ rows: [], rowCount: 1 });
   });
 });
+
+describe('migration identity uniqueness', () => {
+  const { assertUniqueMigrationIdentities, getPendingFiles, runMigrations } = require('../db/migrationRunner');
+
+  it('applies two same-prefix different-description migrations', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-prefix-'));
+    const sqlite = new Database(':memory:');
+    const db = {
+      isPostgres: false,
+      placeholder: () => '?',
+      exec: async (sql) => sqlite.exec(sql),
+      query: async (sql, params = []) => {
+        if (/^SELECT/i.test(sql)) return { rows: sqlite.prepare(sql).all(...params) };
+        sqlite.prepare(sql).run(...params);
+        return { rows: [] };
+      },
+    };
+    try {
+      fs.writeFileSync(path.join(dir, '003_a.sql'), 'CREATE TABLE a (id INTEGER);');
+      fs.writeFileSync(path.join(dir, '003_a.undo.sql'), 'DROP TABLE a;');
+      fs.writeFileSync(path.join(dir, '003_b.sql'), 'CREATE TABLE b (id INTEGER);');
+      fs.writeFileSync(path.join(dir, '003_b.undo.sql'), 'DROP TABLE b;');
+      await runMigrations(db, dir);
+      const applied = await db.query('SELECT name FROM migrations ORDER BY name');
+      expect(applied.rows.map((r) => r.name)).toEqual(['003_a.sql', '003_b.sql']);
+    } finally {
+      sqlite.close();
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it('rejects a duplicated full migration identity', () => {
+    expect(() => assertUniqueMigrationIdentities(['001_a.sql', '001_a.sql'])).toThrow(
+      /Duplicate migration identity/,
+    );
+  });
+});

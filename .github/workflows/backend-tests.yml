@@ -70,6 +70,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check migration undo counterparts
+        working-directory: .
+        run: node backend/scripts/check-migration-undos.js
+
       - name: Run tests with coverage
         run: npm run test:coverage
 
