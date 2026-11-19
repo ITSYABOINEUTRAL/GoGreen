@@ -205,6 +205,20 @@ describe('migration identity uniqueness', () => {
   });
 });
 
+describe('migrationRunner getAdapter dialect validation', () => {
+  const { getAdapter: getRunnerAdapter } = require('../db/migrationRunner');
+
+  it('throws for an unknown dialect instead of opening the SQLite file', () => {
+    expect(() => getRunnerAdapter('postgresql')).toThrow(/Unsupported dialect/);
+  });
+
+  it('still returns a working SQLite adapter for an injected in-memory database', () => {
+    const adapter = getRunnerAdapter('sqlite', new Database(':memory:'));
+
+    expect(adapter.query('SELECT 1 AS n')).toEqual({ rows: [{ n: 1 }] });
+  });
+});
+
 describe('review schema migration and rollback', () => {
   const runnerAdapter = (sqlite) => ({
     isPostgres: false,
@@ -357,5 +371,13 @@ describe('migrationRunner pending and undo selection', () => {
     expect(runner.resolveUndoPath(dir, '001_a.sql', 'sqlite')).toBeNull();
   });
 });
+
+  it('rejects a duplicated full migration identity', () => {
+    expect(() => assertUniqueMigrationIdentities(['001_a.sql', '001_a.sql'])).toThrow(
+      /Duplicate migration identity/,
+    );
+  });
+});
+
   });
 });

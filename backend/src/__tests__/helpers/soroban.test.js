@@ -400,3 +400,66 @@ describe('fundAccount', () => {
     expect(result).toEqual({ account_id: 'GTEST', status: 'funded' });
   });
 });
+
+describe('teardownSandbox idempotency and sandbox state (#242)', () => {
+  let mod;
+  let exec;
+  let spawn;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('@stellar/stellar-sdk', () => {
+      const actual = jest.requireActual('@stellar/stellar-sdk');
+      const soroban = {
+        getLatestLedger: jest.fn().mockResolvedValue({ sequence: 1 }),
+        prepareTransaction: jest.fn(),
+        sendTransaction: jest.fn(),
+        getTransaction: jest.fn(),
+      };
+      const horizon = { loadAccount: jest.fn() };
+      return {
+        ...actual,
+        Horizon: { Server: jest.fn().mockImplementation(() => horizon) },
+        SorobanRpc: { Server: jest.fn().mockImplementation(() => soroban) },
+      };
+    });
+    jest.mock('child_process', () => ({ execSync: jest.fn(), spawnSync: jest.fn() }));
+
+    mod = require('./soroban');
+    ({ execSync: exec, spawnSync: spawn } = require('child_process'));
+  });
+
+  test('_isSandboxRunning is true only when docker inspect reports the container running', () => {
+    exec.mockReturnValue('true\n');
+    expect(mod._isSandboxRunning()).toBe(true);
+
+    exec.mockReturnValue('false\n');
+    expect(mod._isSandboxRunning()).toBe(false);
+  });
+
+  test('_isSandboxRunning is false when docker inspect fails', () => {
+    exec.mockImplementation(() => {
+      throw new Error('No such object');
+    });
+
+    expect(mod._isSandboxRunning()).toBe(false);
+  });
+
+  test('a second teardownSandbox does not throw and does not stop the container again', async () => {
+    exec.mockReturnValue('false\n');
+    spawn.mockReturnValue({ status: 0, stdout: 'cid\n', stderr: '' });
+    await mod.setupSandbox({ timeoutMs: 2_000 });
+
+    exec.mockReset();
+    exec.mockImplementation(() => '');
+
+    await mod.teardownSandbox();
+    await expect(mod.teardownSandbox()).resolves.toBeUndefined();
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec).toHaveBeenCalledWith(
+      expect.stringContaining('docker stop'),
+      expect.any(Object)
+    );
+  });
+});
