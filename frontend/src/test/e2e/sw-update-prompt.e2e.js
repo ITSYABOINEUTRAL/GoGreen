@@ -41,12 +41,12 @@ async function triggerSwUpdated(page) {
       origin: location.origin,
     });
 
-    // navigator.serviceWorker may be undefined in some test environments;
-    // UpdatePrompt guards against this with optional-chaining, so we dispatch
-    // directly to the serviceWorker EventTarget when available, otherwise we
-    // fall back to window so the test can still exercise the banner rendering.
-    const target = navigator.serviceWorker ?? window;
-    target.dispatchEvent(event);
+    // UpdatePrompt listens on navigator.serviceWorker only. Falling back to window
+    // would let the banner tests pass even if that listener were removed, so fail here.
+    if (!navigator.serviceWorker) {
+      throw new Error('navigator.serviceWorker is unavailable; UpdatePrompt must listen on it');
+    }
+    navigator.serviceWorker.dispatchEvent(event);
   });
 }
 
