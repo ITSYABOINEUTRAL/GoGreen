@@ -5,7 +5,6 @@ const app = require('./app');
 const db = require('./db/schema');
 const logger = require('./logger');
 const { startJobs } = require('./jobs');
-const cron = require('node-cron');
 const { startSubscriptionJob } = require('./jobs/processSubscriptions');
 const { startFailedEmailCleanupJob } = require('./jobs/cleanupFailedEmails');
 const { startProductViewsAggJob } = require('./jobs/aggregateProductViews');
@@ -18,7 +17,7 @@ const { startExpiryJob } = require('./jobs/deactivateExpiredProducts');
 const { startAnonymizeJob } = require('./jobs/anonymizeDeactivatedUsers');
 const { startAuctionJob } = require('./jobs/auctionCron');
 const { start: startPaymentConfirmationJob } = require('./jobs/confirmPayments');
-const { createBackup } = require('./scripts/backup');
+const { startDailyBackupCron } = require('./jobs/dailyBackupCron');
 
 const PORT = process.env.PORT || 4000;
 /** Bound for server.close(); must stay below PM2 kill_timeout (5000). */
@@ -62,21 +61,7 @@ async function start() {
     startExpiryJob();
     startAuctionJob();
     startPaymentConfirmationJob();
-
-    cron.schedule('0 0 * * *', async () => {
-      logger.info('Starting scheduled daily backup');
-      try {
-        await createBackup();
-        logger.info('Daily backup completed successfully');
-      } catch (error) {
-        logger.error('Daily backup failed:', { error: error.message });
-      }
-    }, {
-      scheduled: true,
-      timezone: 'UTC'
-    });
-
-    logger.info('Daily backup cron job scheduled at midnight UTC');
+    startDailyBackupCron();
   });
 
   installGracefulShutdown(server);
