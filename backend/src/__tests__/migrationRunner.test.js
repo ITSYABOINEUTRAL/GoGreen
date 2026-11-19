@@ -204,3 +204,38 @@ describe('migration identity uniqueness', () => {
     );
   });
 });
+
+describe('migrationRunner pending and undo selection', () => {
+  const runner = require('../db/migrationRunner');
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-selection-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it('getPendingFiles excludes undo files and files already applied', () => {
+    for (const file of ['001_a.sql', '001_a.undo.sql', '002_b.sql', '002_b.undo.sql', '003_c.sql']) {
+      fs.writeFileSync(path.join(dir, file), '');
+    }
+
+    expect(getPendingFiles(new Set(['001_a.sql']), dir)).toEqual(['002_b.sql', '003_c.sql']);
+  });
+
+  it('resolveUndoPath prefers the postgres undo file over the generic one', () => {
+    fs.writeFileSync(path.join(dir, '001_a.undo.postgres'), 'DROP TABLE a;');
+    fs.writeFileSync(path.join(dir, '001_a.undo.sql'), 'DROP TABLE a;');
+
+    expect(runner.resolveUndoPath(dir, '001_a.sql', 'postgres')).toBe(
+      path.join(dir, '001_a.undo.postgres')
+    );
+  });
+
+  it('resolveUndoPath returns null when neither undo file exists', () => {
+    expect(runner.resolveUndoPath(dir, '001_a.sql', 'postgres')).toBeNull();
+    expect(runner.resolveUndoPath(dir, '001_a.sql', 'sqlite')).toBeNull();
+  });
+});
