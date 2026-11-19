@@ -56,4 +56,32 @@ describe('formatDistanceLabel', () => {
   it('formats a valid distance', () => {
     expect(formatDistanceLabel(5)).toBe('~5 km away');
   });
+
+  it('rounds fractional distances to the nearest km', () => {
+    expect(formatDistanceLabel(1.5)).toBe('~2 km away');
+    expect(formatDistanceLabel(4.6)).toBe('~5 km away');
+  });
+
+  it('rounds exactly .5 up', () => {
+    expect(formatDistanceLabel(0.5)).toBe('~1 km away');
+    expect(formatDistanceLabel(2.5)).toBe('~3 km away');
+  });
+
+  it('clamps sub-kilometre distances to 1 km', () => {
+    expect(formatDistanceLabel(0.4)).toBe('~1 km away');
+    expect(formatDistanceLabel(0)).toBe('~1 km away');
+  });
+
+  it('clamps negative distances to 1 km', () => {
+    expect(formatDistanceLabel(-3)).toBe('~1 km away');
+  });
+
+  it('formats a large distance without a unit change', () => {
+    expect(formatDistanceLabel(12345.6)).toBe('~12346 km away');
+  });
+
+  it('returns null for Infinity, like null and NaN', () => {
+    expect(formatDistanceLabel(Infinity)).toBeNull();
+    expect(formatDistanceLabel(-Infinity)).toBeNull();
+  });
 });
