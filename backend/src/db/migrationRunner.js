@@ -43,6 +43,11 @@ function getAdapter(dialect, dbPathOrInstance) {
     };
   }
 
+  // An unknown dialect (e.g. a typo such as 'postgresql') must not silently open market.db.
+  if (dialect !== 'sqlite') {
+    throw new Error(`Unsupported dialect: ${dialect}`);
+  }
+
   const Database = require('better-sqlite3');
   const db =
     dbPathOrInstance && typeof dbPathOrInstance.prepare === 'function'

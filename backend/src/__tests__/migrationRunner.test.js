@@ -204,3 +204,17 @@ describe('migration identity uniqueness', () => {
     );
   });
 });
+
+describe('migrationRunner getAdapter dialect validation', () => {
+  const { getAdapter: getRunnerAdapter } = require('../db/migrationRunner');
+
+  it('throws for an unknown dialect instead of opening the SQLite file', () => {
+    expect(() => getRunnerAdapter('postgresql')).toThrow(/Unsupported dialect/);
+  });
+
+  it('still returns a working SQLite adapter for an injected in-memory database', () => {
+    const adapter = getRunnerAdapter('sqlite', new Database(':memory:'));
+
+    expect(adapter.query('SELECT 1 AS n')).toEqual({ rows: [{ n: 1 }] });
+  });
+});
