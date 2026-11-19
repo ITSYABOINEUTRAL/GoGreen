@@ -1,9 +1,10 @@
 import React from 'react';
 import { captureException } from '../utils/sentry';
 
-const CHUNK_LOAD_ERROR_PATTERN = /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk .* failed|ChunkLoadError/i;
+const CHUNK_LOAD_ERROR_PATTERN =
+  /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk .* failed|ChunkLoadError/i;
 
-function isChunkLoadError(message) {
+export function isChunkLoadError(message) {
   return CHUNK_LOAD_ERROR_PATTERN.test(message || '');
 }
 
@@ -60,7 +61,7 @@ class ErrorBoundary extends React.Component {
           userAgent: navigator.userAgent,
           timestamp: new Date().toISOString(),
         }),
-      }).catch(e => {
+      }).catch((e) => {
         // eslint-disable-next-line no-console
         console.error('Failed to log error to backend:', e);
       });
@@ -87,9 +88,14 @@ class ErrorBoundary extends React.Component {
               <div style={styles.icon}>🔄</div>
               <h1 style={styles.title}>A New Version Is Available</h1>
               <p style={styles.message}>
-                This page has been updated since you loaded it. Please refresh to get the latest version.
+                This page has been updated since you loaded it. Please refresh to get the latest
+                version.
               </p>
-              <button style={styles.button} onClick={this.handleReload} aria-label="Refresh to apply the update">
+              <button
+                style={styles.button}
+                onClick={this.handleReload}
+                aria-label="Refresh to apply the update"
+              >
                 Refresh
               </button>
             </div>
@@ -102,26 +108,25 @@ class ErrorBoundary extends React.Component {
           <div style={styles.errorBox}>
             <div style={styles.icon}>⚠️</div>
             <h1 style={styles.title}>Oops! Something Went Wrong</h1>
-            <p style={styles.message}>
-              {this.state.errorMessage}
-            </p>
+            <p style={styles.message}>{this.state.errorMessage}</p>
             <p style={styles.subtext}>
               The app encountered an unexpected error. Try reloading the page to continue.
             </p>
 
-            {process.env.NODE_ENV === 'development' && this.state.errorDetails && (
+            {import.meta.env.DEV && this.state.errorDetails && (
               <details style={styles.details}>
                 <summary style={styles.summary}>Error Details (Development Only)</summary>
-                <pre style={styles.pre}>
-                  {JSON.stringify(this.state.errorDetails, null, 2)}
-                </pre>
+                <pre style={styles.pre}>{JSON.stringify(this.state.errorDetails, null, 2)}</pre>
               </details>
             )}
 
             <button style={styles.button} onClick={this.handleRetry}>
               Try again
             </button>
-            <button style={{ ...styles.button, background: '#888', marginLeft: 8 }} onClick={this.handleReload}>
+            <button
+              style={{ ...styles.button, background: '#888', marginLeft: 8 }}
+              onClick={this.handleReload}
+            >
               🔄 Reload Page
             </button>
           </div>
@@ -141,7 +146,8 @@ const styles = {
     minHeight: '100vh',
     background: 'linear-gradient(135deg, #f5f5f5 0%, #efefef 100%)',
     padding: '20px',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   },
   errorBox: {
     background: 'white',
