@@ -23,7 +23,7 @@ export function calculateHaversineDistance(lat1, lng1, lat2, lng2) {
 }
 
 export function formatDistanceLabel(distanceKm) {
-  if (distanceKm == null || Number.isNaN(distanceKm)) return null;
+  if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
   const rounded = Math.max(1, Math.round(distanceKm));
   return `~${rounded} km away`;
 }

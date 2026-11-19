@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { request } from '../client';
-
-const REFRESH_TIMEOUT_MS = 10_000;
+import { request, REFRESH_TIMEOUT_MS } from '../client';
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
   return {
