@@ -180,3 +180,21 @@ describe('FarmerProfile - verified badge', () => {
     expect(await screen.findByText(/verified/i)).toBeInTheDocument();
   });
 });
+
+describe('Dashboard - secondary loader failures', () => {
+  it('still renders the product form when getHarvestBatches rejects', async () => {
+    api.getHarvestBatches.mockRejectedValue(new Error('boom'));
+
+    renderDashboard();
+
+    expect(await screen.findByLabelText('Product Name')).toBeInTheDocument();
+  });
+
+  it('still renders the product form when getCreatorEarnings rejects', async () => {
+    api.getCreatorEarnings.mockRejectedValue(new Error('boom'));
+
+    renderDashboard();
+
+    expect(await screen.findByLabelText('Product Name')).toBeInTheDocument();
+  });
+});
