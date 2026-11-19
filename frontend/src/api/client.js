@@ -49,7 +49,7 @@ const SESSION_EXPIRED = 'Session expired';
 
 // A refresh that hangs (offline, proxy black hole) must not leave every queued
 // 401 pending forever, so the single-flight refresh races this deadline.
-const REFRESH_TIMEOUT_MS = 10000;
+export const REFRESH_TIMEOUT_MS = 10000;
 
 let accessToken = null;
 let loadingCallback = null;
