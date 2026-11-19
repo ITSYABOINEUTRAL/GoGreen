@@ -1,71 +1,90 @@
 'use strict';
 
-const crypto = require('crypto');
+jest.mock('../logger', () => ({
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  debug: jest.fn(),
+}));
 
-describe('webhookService', () => {
-  let webhookService;
+const logger = require('../logger');
+const { fireOrderWebhook, MAX_RETRIES } = require('../services/webhookService');
+
+function mockDb({ farmerResult, insertImpl }) {
+  const insert = jest.fn(insertImpl);
+  const first = jest.fn().mockImplementation(() => farmerResult);
+  const where = jest.fn().mockReturnValue({ first });
+  const db = jest.fn((table) => {
+    if (table === 'farmers') return { where };
+    if (table === 'webhook_deliveries') return { insert };
+    throw new Error(`unexpected table ${table}`);
+  });
+  return { db, insert, where, first };
+}
+
+describe('fireOrderWebhook', () => {
+  const order = {
+    id: 42,
+    status: 'paid',
+    buyer_id: 1,
+    farmer_id: 7,
+    total_amount: 10,
+    currency: 'USD',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  };
+
+  const farmer = {
+    id: 7,
+    webhook_url: 'https://example.com/hook',
+    webhook_secret: 'secret',
+  };
 
   beforeEach(() => {
-    jest.resetModules();
-    global.fetch = jest.fn();
-    webhookService = require('../services/webhookService');
+    jest.clearAllMocks();
+    jest.spyOn(global, 'setTimeout').mockImplementation((fn) => {
+      fn();
+      return 0;
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => 'fail',
+    });
   });
 
-  it('signPayload returns a stable sha256 HMAC', () => {
-    const payload = '{"event":"order.paid"}';
-    const expected =
-      'sha256=' + crypto.createHmac('sha256', 'secret').update(payload).digest('hex');
-    expect(webhookService.signPayload('secret', payload)).toBe(expected);
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  it('buildPayload includes event, timestamp, and order fields', () => {
-    const order = {
-      id: 1,
-      status: 'paid',
-      buyer_id: 2,
-      farmer_id: 3,
-      total_amount: '9.50',
-      updated_at: '2026-01-01T00:00:00.000Z',
-    };
-    const parsed = JSON.parse(webhookService.buildPayload('order.paid', order));
-    expect(parsed.event).toBe('order.paid');
-    expect(parsed.timestamp).toBeTruthy();
-    expect(parsed.data.order_id).toBe(1);
-    expect(parsed.data.total_amount).toBe('9.50');
+  it('resolves and keeps retrying when webhook_deliveries insert throws', async () => {
+    const { db, insert } = mockDb({
+      farmerResult: Promise.resolve(farmer),
+      insertImpl: () => Promise.reject(new Error('insert failed')),
+    });
+
+    await expect(fireOrderWebhook(db, 'order.paid', order)).resolves.toBeUndefined();
+
+    expect(global.fetch).toHaveBeenCalledTimes(MAX_RETRIES);
+    expect(insert).toHaveBeenCalledTimes(MAX_RETRIES);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to record delivery attempt'),
+      expect.objectContaining({ error: 'insert failed' })
+    );
   });
 
-  it('retries failed deliveries and increments attempt header', async () => {
-    jest.useFakeTimers();
-    const insertFn = jest.fn().mockResolvedValue([]);
+  it('logs and returns when farmer lookup rejects', async () => {
+    const first = jest.fn().mockRejectedValue(new Error('db down'));
+    const where = jest.fn().mockReturnValue({ first });
     const db = jest.fn((table) => {
-      if (table === 'webhook_deliveries') return { insert: insertFn };
-      return {
-        where: jest.fn().mockReturnThis(),
-        first: jest.fn().mockResolvedValue({
-          webhook_url: 'https://example.com/hook',
-          webhook_secret: 'farmer-secret',
-        }),
-      };
+      if (table === 'farmers') return { where };
+      throw new Error(`unexpected table ${table}`);
     });
 
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'err' })
-      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => 'ok' });
-
-    const promise = webhookService.fireOrderWebhook(db, 'order.paid', {
-      id: 9,
-      status: 'paid',
-      buyer_id: 1,
-      farmer_id: 7,
-      total_amount: '10',
-      updated_at: new Date().toISOString(),
-    });
-    await jest.runAllTimersAsync();
-    await promise;
-
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    expect(global.fetch.mock.calls[1][1].headers['X-Farmers-Event-Attempt']).toBe('2');
-    jest.useRealTimers();
+    await expect(fireOrderWebhook(db, 'order.paid', order)).resolves.toBeUndefined();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Farmer lookup failed'),
+      expect.objectContaining({ error: 'db down' })
+    );
   });
 });

@@ -47,6 +47,21 @@ export default function AdminDisputesPanel({ disputes = [], onResolve }) {
         <div style={{ color: '#888', fontSize: 14 }}>No disputes filed.</div>
       ) : (
         <table style={s.table}>
+          <caption
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              overflow: 'hidden',
+              clip: 'rect(0, 0, 0, 0)',
+              whiteSpace: 'nowrap',
+              border: 0,
+            }}
+          >
+            Customer disputes
+          </caption>
           <thead>
             <tr>
               <th style={s.th}>ID</th>
@@ -82,7 +97,11 @@ export default function AdminDisputesPanel({ disputes = [], onResolve }) {
                 </td>
                 <td style={s.td}>
                   {RESOLVABLE_STATUSES.has(d.status) && (
-                    <button style={s.deactivate} onClick={() => onResolve?.(d)}>
+                    <button
+                      style={s.deactivate}
+                      onClick={() => onResolve?.(d)}
+                      aria-label={`Resolve dispute ${d.id}`}
+                    >
                       Resolve
                     </button>
                   )}
