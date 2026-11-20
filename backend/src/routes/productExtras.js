@@ -14,6 +14,7 @@ const upload = require('../middleware/upload');
 const { err } = require('../middleware/error');
 const { rewriteImageUrl } = require('../utils/cdn');
 const categoriesRouter = require('./categories');
+const WaitlistService = require('../services/WaitlistService');
 
 const SEARCH_LIMIT = 20;
 
@@ -106,6 +107,24 @@ router.patch('/bulk-price', auth, async (req, res) => {
 
   if (updated > 0) await cache.delByPattern('products:*');
   res.json({ success: true, data: { updated } });
+});
+
+router.get('/:id/waitlist/status', auth, async (req, res) => {
+  if (req.user.role !== 'buyer') {
+    return err(res, 403, 'Only buyers can check waitlist status', 'forbidden');
+  }
+
+  const service = new WaitlistService();
+  const result = await service.getWaitlistStatus(req.user.id, parseInt(req.params.id, 10));
+
+  if (!result.success) return err(res, 500, result.error, 'waitlist_error');
+
+  return res.json({
+    success: true,
+    onWaitlist: result.onWaitlist,
+    ...(result.position !== undefined ? { position: result.position } : {}),
+    totalWaiting: result.totalWaiting,
+  });
 });
 
 module.exports = router;
