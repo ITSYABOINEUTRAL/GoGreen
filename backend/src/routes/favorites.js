@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
+const { currentTimestamp } = require('../db/dialect');
 
 // POST /api/favorites
 router.post('/', auth, async (req, res) => {
@@ -51,15 +52,22 @@ router.get('/', auth, async (req, res) => {
   );
   const total = parseInt(countRows[0].count);
 
+  const roundAvg = db.isPostgres
+    ? 'ROUND(CAST(AVG(r.rating) AS numeric), 1)'
+    : 'ROUND(AVG(r.rating), 1)';
   const { rows: favorites } = await db.query(
-    `SELECT p.*, u.id as farmer_id, u.name as farmer_name, u.bio as farmer_bio, u.location as farmer_location, u.avatar_url as farmer_avatar,
-            ROUND(AVG(r.rating)::numeric, 1) as avg_rating, COUNT(r.id) as review_count, f.created_at as favorited_at
+    `SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_url,
+            u.id as farmer_id, u.name as farmer_name, u.bio as farmer_bio,
+            u.location as farmer_location, u.avatar_url as farmer_avatar,
+            ${roundAvg} as avg_rating, COUNT(r.id) as review_count,
+            f.created_at as favorited_at
      FROM favorites f
      JOIN products p ON f.product_id = p.id
      JOIN users u ON p.farmer_id = u.id
      LEFT JOIN reviews r ON r.product_id = p.id
      WHERE f.buyer_id = $1
-     GROUP BY p.id, u.id, f.created_at
+     GROUP BY p.id, p.name, p.description, p.price, p.quantity, p.image_url,
+              u.id, u.name, u.bio, u.location, u.avatar_url, f.created_at
      ORDER BY f.created_at DESC
      LIMIT $2 OFFSET $3`,
     [req.user.id, limit, offset]
