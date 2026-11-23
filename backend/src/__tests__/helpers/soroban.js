@@ -283,6 +283,7 @@ module.exports = {
   setupSandbox,
   teardownSandbox,
   _isSandboxRunning,
+  get _sandboxStartedByUs() { return _sandboxStartedByUs; },
   _waitForRpc,
   // helpers
   fundAccount,
