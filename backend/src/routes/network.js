@@ -229,3 +229,8 @@ router.get('/peers/:peerId/products', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports._resetKeyPair = () => { _keyPair = null; };
+module.exports._keyPairFn = keyPair;
+module.exports._publicKeyHex = publicKeyHex;
+module.exports._sign = sign;
+module.exports._isPrivateAddress = isPrivateAddress;
