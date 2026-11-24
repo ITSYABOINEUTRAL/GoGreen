@@ -29,6 +29,13 @@ export function clearAccessToken() {
   accessToken = null;
 }
 
+// test-only: call in beforeEach to reset all module-level state between tests
+export function __resetForTests() {
+  accessToken = null;
+  refreshPromise = null;
+  sessionExpired = false;
+}
+
 export function setLoadingCallback(fn) {
   loadingCallback = typeof fn === 'function' ? fn : null;
 }
@@ -163,7 +170,7 @@ function endSession() {
   if (logoutCallback) logoutCallback();
 }
 
-async function request(path, options = {}, retry = true, csrfRetry = true) {
+export async function request(path, options = {}, retry = true, csrfRetry = true) {
   const method = (options.method || 'GET').toUpperCase();
   const needsCsrf = MUTATING.includes(method) && !CSRF_EXEMPT.includes(path);
 
