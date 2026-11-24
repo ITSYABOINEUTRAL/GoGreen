@@ -296,6 +296,7 @@ module.exports = {
   teardownSandbox,
   _isSandboxRunning,
   _waitForRpc,
+  _withTimeout,
   // helpers
   fundAccount,
   deployContract,
