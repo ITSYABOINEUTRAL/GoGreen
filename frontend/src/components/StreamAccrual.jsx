@@ -21,13 +21,15 @@ export default function StreamAccrual({ accrued, asOf, rate }) {
   }, [accrued, asOf]);
 
   useEffect(() => {
-    if (!rate || rate <= 0) return;
+    const numericRate = Number(rate);
+    const accruing = Number.isFinite(numericRate) && numericRate > 0;
+    if (!accruing) return;
     const timer = setInterval(() => {
       const elapsedSeconds = Math.max(0, (Date.now() - baseRef.current.asOf) / 1000);
-      setDisplayed(baseRef.current.accrued + elapsedSeconds * Number(rate));
+      setDisplayed(baseRef.current.accrued + elapsedSeconds * numericRate);
     }, 1000);
     return () => clearInterval(timer);
   }, [rate]);
 
-  return <span>{displayed.toFixed(4)}</span>;
+  return <span>{Number.isFinite(displayed) ? displayed.toFixed(4) : '0.0000'}</span>;
 }
