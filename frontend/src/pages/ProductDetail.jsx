@@ -127,6 +127,7 @@ export default function ProductDetail() {
   const { isFavorited, toggleFavorite } = useFavorites();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
+  const [productNotFound, setProductNotFound] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [qty, setQty] = useState(1);
   const [weight, setWeight] = useState('');
@@ -301,6 +302,10 @@ export default function ProductDetail() {
    useEffect(() => {
     api.getProduct(id).then(res => {
       const p = res.data ?? res;
+      if (!p) {
+        setProductNotFound(true);
+        return;
+      }
       setProduct(p);
       setQty(p.min_order_quantity || 1);
       if (p.pricing_model === 'pwyw') setCustomPrice(String(p.min_price));
@@ -514,6 +519,19 @@ export default function ProductDetail() {
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [auctionData?.auction_end]);
+
+  if (productNotFound) {
+    return (
+      <div style={s.page}>
+        <div style={s.card} data-testid="product-not-found">
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#c0392b', marginBottom: 8 }}>Product not found</div>
+          <div style={{ color: '#555', marginBottom: 20 }}>This listing is no longer available or the link is incorrect.</div>
+          <button style={s.btn} onClick={() => navigate('/marketplace')}>Back to Marketplace</button>
+        </div>
+      </div>
+    );
+  }
 
   if (!product) return <Spinner />;
 
@@ -1273,12 +1291,27 @@ export default function ProductDetail() {
         ) : (
           <div style={s.row}>
             <label style={{ fontSize: 14 }}>{t('productDetail.quantity')}</label>
-            <input style={s.input} type="number" min={product.min_order_quantity || 1} max={currentStock} value={qty}
+            <input
+              data-testid="qty-input"
+              style={s.input}
+              type="number"
+              min={product.min_order_quantity || 1}
+              max={currentStock}
+              value={qty}
               onChange={e => {
-                setQty(Math.max(product.min_order_quantity || 1, Math.min(currentStock, parseInt(e.target.value) || (product.min_order_quantity || 1))));
+                const parsed = parseInt(e.target.value);
+                const minQ = product.min_order_quantity || 1;
+                const clamped = isNaN(parsed) || parsed < minQ ? minQ : Math.min(currentStock, parsed);
+                setQty(clamped);
                 setCouponResult(null);
                 setCouponError('');
-              }} />
+              }}
+              onBlur={e => {
+                const parsed = parseInt(e.target.value);
+                const minQ = product.min_order_quantity || 1;
+                if (isNaN(parsed) || parsed < minQ) setQty(minQ);
+              }}
+            />
             <span style={{ fontSize: 13, color: '#888' }}>{product.unit}</span>
           </div>
         )}
@@ -1536,8 +1569,8 @@ export default function ProductDetail() {
             )}
             <button style={{ ...s.btn, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
               onClick={handleBuy}
-              disabled={loading || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
-              aria-disabled={loading}
+              disabled={loading || qty < 1 || (calendar.length > 0 && selectedWeek && !calendar.find(w => w.week_start === selectedWeek)?.available)}
+              aria-disabled={loading || qty < 1}
               aria-busy={loading}
               data-testid="buy-now-btn">
               {loading && <div className="spinner-sm" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />}
