@@ -79,7 +79,10 @@ export function showToast(message, type = 'info', duration = TOAST_DURATION_MS) 
   let exitTimeoutId;
   const cleanup = () => {
     toastEl.remove();
-    if (container.children.length === 0) container.remove();
+    if (container.children.length === 0) {
+      container.remove();
+      document.getElementById('toast-animations')?.remove();
+    }
   };
   const close = () => {
     if (closed) return;

@@ -2,25 +2,30 @@
  * Creates an admin user from environment variables.
  * Usage: node backend/scripts/seed-admin.js
  * Env vars: ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD
+ * Optional: ADMIN_DB_PATH overrides the default SQLite database path.
  * Supports both SQLite (default) and PostgreSQL (when DATABASE_URL is set).
  */
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const bcrypt = require('bcryptjs');
 
-const name = process.env.ADMIN_NAME || 'Admin';
-const email = process.env.ADMIN_EMAIL || 'admin@gogreen.com';
-const password = process.env.ADMIN_PASSWORD || 'Admin1234!';
+async function run(env = process.env, SqliteDatabase) {
+  const name = env.ADMIN_NAME || 'Admin';
+  const email = env.ADMIN_EMAIL;
+  const password = env.ADMIN_PASSWORD;
+  const missingVariables = [
+    !email && 'ADMIN_EMAIL',
+    !password && 'ADMIN_PASSWORD',
+  ].filter(Boolean);
 
-if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
-  console.warn('[seed-admin] ADMIN_EMAIL or ADMIN_PASSWORD not set — using defaults.');
-}
+  if (missingVariables.length > 0) {
+    throw new Error(`Missing required environment variable(s): ${missingVariables.join(', ')}`);
+  }
 
-async function run() {
   const hashed = bcrypt.hashSync(password, 12);
 
-  if (process.env.DATABASE_URL) {
+  if (env.DATABASE_URL) {
     const { Pool } = require('pg');
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = new Pool({ connectionString: env.DATABASE_URL });
     const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (rows[0]) {
       await pool.query("UPDATE users SET role = 'admin' WHERE email = $1", [email]);
@@ -34,12 +39,14 @@ async function run() {
     }
     await pool.end();
   } else {
-    const Database = require('better-sqlite3');
+    const Database = SqliteDatabase || require('better-sqlite3');
     const path = require('path');
-    const db = new Database(path.join(__dirname, '../market.db'));
+    const db = new Database(env.ADMIN_DB_PATH || path.join(__dirname, '../market.db'));
     try {
       db.exec('ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1');
-    } catch {}
+    } catch (error) {
+      if (!/duplicate column/i.test(error.message)) throw error;
+    }
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) {
       db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run(email);
@@ -51,10 +58,15 @@ async function run() {
       console.log(`[seed-admin] Admin user created: ${email}`);
     }
   }
-  process.exit(0);
 }
 
-run().catch((e) => {
-  console.error(e.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  run()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(`[seed-admin] ${error.message}`);
+      process.exitCode = 1;
+    });
+}
+
+module.exports = { run };
