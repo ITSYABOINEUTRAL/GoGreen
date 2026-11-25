@@ -1,27 +1,51 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from '../api/client';
 
 const NetworkContext = createContext({
   network: null,
-  explorerUrl: (type, id) => `https://stellar.expert/explorer/testnet/${type}/${id}`,
+  loading: false,
+  error: null,
+  explorerUrl: () => null,
+  refresh: () => {},
 });
 
 export function NetworkProvider({ children }) {
   const [network, setNetwork] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
+  const fetchNetwork = useCallback(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     api.getNetwork()
-      .then(res => { if (!cancelled) setNetwork(res.network); })
-      .catch(() => {});
+      .then(res => {
+        if (!cancelled) {
+          setNetwork(res.network);
+          setLoading(false);
+        }
+      })
+      .catch(e => {
+        if (!cancelled) {
+          setError(e);
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, []);
 
-  const explorerUrl = (type, id) =>
-    `https://stellar.expert/explorer/${network === 'mainnet' ? 'public' : 'testnet'}/${type}/${encodeURIComponent(id)}`;
+  useEffect(() => {
+    const cancel = fetchNetwork();
+    return cancel;
+  }, [fetchNetwork]);
+
+  const explorerUrl = (type, id) => {
+    if (network === null) return null;
+    return `https://stellar.expert/explorer/${network === 'mainnet' ? 'public' : 'testnet'}/${type}/${encodeURIComponent(id)}`;
+  };
 
   return (
-    <NetworkContext.Provider value={{ network, explorerUrl }}>
+    <NetworkContext.Provider value={{ network, loading, error, explorerUrl, refresh: fetchNetwork }}>
       {children}
     </NetworkContext.Provider>
   );

@@ -244,6 +244,23 @@ describe('GET /api/auctions', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(0);
   });
+
+  it('passes a timestamp parameter to db.query for the ends_at filter', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await request(app).get('/api/auctions');
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
+    const params = mockDb.query.mock.calls[0][1];
+    expect(params).toHaveLength(1);
+    expect(new Date(params[0]).getTime()).toBeGreaterThan(0);
+  });
+
+  it('returns 500 with internal_error code when db.query rejects', async () => {
+    mockDb.query.mockRejectedValueOnce(new Error('DB down'));
+    const res = await request(app).get('/api/auctions');
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('internal_error');
+    expect(res.body.message).toMatch(/Failed to list auctions/);
+  });
 });
 
 describe('GET /api/auctions/:id', () => {
@@ -254,11 +271,29 @@ describe('GET /api/auctions/:id', () => {
     expect(res.body.data.id).toBe(1);
   });
 
+  it('returns auction fields including bid_count', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [activeAuction], rowCount: 1 });
+    const res = await request(app).get('/api/auctions/1');
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d).toHaveProperty('bid_count');
+    expect(d).toHaveProperty('product_name');
+    expect(d).toHaveProperty('farmer_name');
+    expect(d).toHaveProperty('ends_at');
+  });
+
   it('returns 404 for unknown auction', async () => {
     mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const res = await request(app).get('/api/auctions/999');
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('not_found');
+  });
+
+  it('returns 500 with internal_error code when db.query rejects', async () => {
+    mockDb.query.mockRejectedValueOnce(new Error('DB down'));
+    const res = await request(app).get('/api/auctions/1');
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('internal_error');
   });
 });
 
