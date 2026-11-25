@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const bannerStyle = {
   position: 'fixed',
@@ -23,8 +23,19 @@ const btnBase = {
   fontSize: '0.875rem',
 };
 
+/**
+ * Post SKIP_WAITING to the waiting service worker, then reload the page.
+ * Extracted so tests can inject a fake navigator.serviceWorker.
+ */
+export function requestSkipWaiting(sw, reload = () => window.location.reload()) {
+  sw.postMessage({ type: 'SKIP_WAITING' });
+  reload();
+}
+
 export default function UpdatePrompt() {
   const [show, setShow] = useState(false);
+  const registrationRef = useRef(null);
+  const installingRef = useRef(null);
 
   useEffect(() => {
     function handleMessage(event) {
@@ -42,43 +53,67 @@ export default function UpdatePrompt() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return undefined;
 
-    // A new sw.js (with a fresh build hash in its cache name) is byte-different
-    // after every deploy, so the browser installs it and fires updatefound.
-    // Surface the prompt as soon as the new worker is installed and waiting.
+    let cancelled = false;
+
+    function handleUpdateFound() {
+      const installing = registrationRef.current?.installing;
+      if (!installing) return;
+
+      // Remove any previous statechange listener before attaching a new one.
+      if (installingRef.current) {
+        installingRef.current.removeEventListener('statechange', handleStateChange);
+      }
+      installingRef.current = installing;
+      installing.addEventListener('statechange', handleStateChange);
+    }
+
+    function handleStateChange() {
+      if (
+        installingRef.current?.state === 'installed' &&
+        navigator.serviceWorker.controller
+      ) {
+        setShow(true);
+      }
+    }
+
     function handleControllerChange() {
       setShow(true);
     }
 
-    function watchRegistration(registration) {
-      if (!registration) return;
-      if (registration.waiting && navigator.serviceWorker.controller) {
-        setShow(true);
-      }
-      registration.addEventListener('updatefound', () => {
-        const installing = registration.installing;
-        if (!installing) return;
-        installing.addEventListener('statechange', () => {
-          if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-            setShow(true);
-          }
-        });
-      });
-    }
-
     navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
-    navigator.serviceWorker.ready.then(watchRegistration).catch(() => {});
+
+    navigator.serviceWorker.ready
+      .then((registration) => {
+        if (cancelled) return;
+        registrationRef.current = registration;
+
+        if (registration.waiting && navigator.serviceWorker.controller) {
+          setShow(true);
+        }
+
+        registration.addEventListener('updatefound', handleUpdateFound);
+      })
+      .catch(() => {});
 
     return () => {
+      cancelled = true;
       navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+
+      if (registrationRef.current) {
+        registrationRef.current.removeEventListener('updatefound', handleUpdateFound);
+      }
+      if (installingRef.current) {
+        installingRef.current.removeEventListener('statechange', handleStateChange);
+      }
     };
   }, []);
 
   function handleRefresh() {
-    // Tell the waiting service worker to skip waiting, then reload.
     if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+      requestSkipWaiting(navigator.serviceWorker.controller);
+    } else {
+      window.location.reload();
     }
-    window.location.reload();
   }
 
   function handleDismiss() {

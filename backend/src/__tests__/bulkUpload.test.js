@@ -112,3 +112,60 @@ describe('POST /api/products/bulk', () => {
     expect(res.body.errors).toHaveLength(2);
   });
 });
+
+describe('POST /api/products/bulk — PostgreSQL dialect', () => {
+  beforeEach(() => {
+    mockDb.isPostgres = true;
+    mockDb.withTransaction = jest.fn(async (fn) => {
+      const q = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: 1 }) };
+      await fn(q);
+      return q;
+    });
+  });
+
+  afterEach(() => {
+    mockDb.isPostgres = false;
+  });
+
+  it('accepts a valid CSV and creates rows via withTransaction on Postgres', async () => {
+    const csv = 'name,price,quantity\nTomatoes,2.5,100\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.created).toBe(1);
+    expect(mockDb.withTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 400 missing_columns without calling withTransaction', async () => {
+    const csv = 'name,quantity\nTomatoes,100\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('missing_columns');
+    expect(mockDb.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns db_error (not parse_error) when withTransaction rejects', async () => {
+    mockDb.withTransaction = jest.fn().mockRejectedValue(new Error('connection refused'));
+    const csv = 'name,price,quantity\nTomatoes,2.5,100\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('db_error');
+  });
+
+  it('returns 400 for >500 rows without calling withTransaction', async () => {
+    const rows = ['name,price,quantity'];
+    for (let i = 0; i < 501; i++) rows.push(`Product ${i},1.0,10`);
+    const res = await csvUpload(rows.join('\n'));
+    expect(res.status).toBe(400);
+    expect(mockDb.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('skips rows with bad price and reports them', async () => {
+    const csv = 'name,price,quantity\nValid,2.5,100\nBadPrice,notanumber,10\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(200);
+    expect(res.body.created).toBe(1);
+    expect(res.body.skipped).toBe(1);
+    expect(res.body.errors[0].error).toContain('price');
+  });
+});

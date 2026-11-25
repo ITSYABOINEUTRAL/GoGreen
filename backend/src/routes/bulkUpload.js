@@ -19,6 +19,9 @@ const upload = multer({
   },
 });
 
+const INSERT_SQL =
+  'INSERT INTO products (farmer_id, name, description, price, quantity, unit, category) VALUES ($1, $2, $3, $4, $5, $6, $7)';
+
 // POST /api/products/bulk - bulk upload products via CSV
 router.post('/', auth, upload.single('file'), async (req, res) => {
   if (req.user.role !== 'farmer')
@@ -28,6 +31,9 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
 
   const results = { created: 0, skipped: 0, errors: [] };
 
+  // Parse CSV first — keep parse errors separate from DB errors.
+  let records;
+  let detectedHeaders = null;
   try {
     const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
     const ALLOWED_HEADERS = ['name', 'description', 'price', 'quantity', 'unit', 'category'];
@@ -44,7 +50,6 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       parser.on('end', () => resolve(rows));
       parser.on('error', reject);
     });
-
     if (!detectedHeaders) {
       return err(res, 400, 'CSV file is empty or has no header row', 'validation_error');
     }
@@ -133,8 +138,110 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       errors: results.errors,
     });
   } catch (e) {
-    err(res, 400, 'Failed to parse CSV: ' + e.message, 'parse_error');
+    return err(res, 400, 'Failed to parse CSV: ' + e.message, 'parse_error');
   }
+
+  if (!detectedHeaders) {
+    return err(res, 400, 'CSV file is empty or has no header row', 'validation_error');
+  }
+
+  const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
+  const missingHeaders = REQUIRED_HEADERS.filter((h) => !detectedHeaders.includes(h));
+  if (missingHeaders.length > 0) {
+    return err(res, 400, `Missing required columns: ${missingHeaders.join(', ')}`, 'missing_columns');
+  }
+
+  // Limit to 500 rows
+  if (records.length > 500) {
+    return err(res, 400, 'Maximum 500 rows per upload', 'validation_error');
+  }
+
+  // Validate rows and collect valid ones
+  const validRows = [];
+  for (let i = 0; i < records.length; i++) {
+    const row = records[i];
+    const rowNum = i + 2; // +2 for 1-indexed and header row
+
+    if (!row.name || row.name.trim() === '') {
+      results.skipped++;
+      results.errors.push({ row: rowNum, error: 'name is required' });
+      continue;
+    }
+
+    const price = parseFloat(row.price);
+    if (isNaN(price) || price <= 0) {
+      results.skipped++;
+      results.errors.push({ row: rowNum, error: 'price must be a positive number' });
+      continue;
+    }
+
+    const quantity = parseInt(row.quantity, 10);
+    if (isNaN(quantity) || quantity <= 0) {
+      results.skipped++;
+      results.errors.push({ row: rowNum, error: 'quantity must be a positive integer' });
+      continue;
+    }
+
+    validRows.push({ row, rowNum, price, quantity });
+  }
+
+  // Insert valid rows — branch on the active database dialect.
+  try {
+    if (db.isPostgres) {
+      await db.withTransaction(async (q) => {
+        for (const { row, rowNum, price, quantity } of validRows) {
+          try {
+            await q.query(INSERT_SQL, [
+              req.user.id,
+              row.name.trim(),
+              sanitizeText(row.description?.trim()) || null,
+              price,
+              quantity,
+              sanitizeText(row.unit?.trim()) || 'unit',
+              sanitizeText(row.category?.trim()) || 'other',
+            ]);
+            results.created++;
+          } catch (e) {
+            results.skipped++;
+            results.errors.push({ row: rowNum, error: e.message });
+          }
+        }
+      });
+    } else {
+      const insertStmt = db.prepare(
+        'INSERT INTO products (farmer_id, name, description, price, quantity, unit, category) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      );
+      const transaction = db.transaction((rows) => {
+        for (const { row, rowNum, price, quantity } of rows) {
+          try {
+            insertStmt.run(
+              req.user.id,
+              row.name.trim(),
+              sanitizeText(row.description?.trim()) || null,
+              price,
+              quantity,
+              sanitizeText(row.unit?.trim()) || 'unit',
+              sanitizeText(row.category?.trim()) || 'other'
+            );
+            results.created++;
+          } catch (e) {
+            results.skipped++;
+            results.errors.push({ row: rowNum, error: e.message });
+          }
+        }
+      });
+      transaction(validRows);
+    }
+  } catch (e) {
+    return err(res, 500, 'Database error during bulk insert: ' + e.message, 'db_error');
+  }
+
+  res.json({
+    success: true,
+    created: results.created,
+    skipped: results.skipped,
+    errors: results.errors,
+  });
 });
 
 // GET /api/products/bulk/template - download CSV template
