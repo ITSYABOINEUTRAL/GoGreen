@@ -1,36 +1,69 @@
 const winston = require('winston');
 const path = require('path');
+const fs = require('fs');
+const config = require('./config');
 
-const logLevel = process.env.LOG_LEVEL || 'info';
-const isProduction = process.env.NODE_ENV === 'production';
+const { combine, timestamp, printf, colorize, errors } = winston.format;
 
-const logFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  isProduction 
-    ? winston.format.json()
-    : winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      )
-);
+const isProduction = config.nodeEnv === 'production';
+
+const logFormat = printf(({ level, message, timestamp, stack }) => {
+  return `${timestamp} [${level}]: ${stack || message}`;
+});
+
+const transports = [
+  new winston.transports.Console({
+    format: combine(
+      colorize(),
+      timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+      errors({ stack: true }),
+      logFormat
+    ),
+  }),
+];
+
+if (isProduction) {
+  const logsDir = path.join(process.cwd(), 'logs');
+  try {
+    fs.mkdirSync(logsDir, { recursive: true });
+  } catch (err) {
+    console.error(`[logger] Failed to create logs directory at ${logsDir}:`, err);
+  }
+
+  const fileFormat = combine(
+    timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    errors({ stack: true }),
+    logFormat
+  );
+
+  const errorTransport = new winston.transports.File({
+    filename: path.join(logsDir, 'error.log'),
+    level: 'error',
+    format: fileFormat,
+  });
+  const combinedTransport = new winston.transports.File({
+    filename: path.join(logsDir, 'combined.log'),
+    format: fileFormat,
+  });
+
+  [errorTransport, combinedTransport].forEach((transport) => {
+    transport.on('error', (err) => {
+      console.error('[logger] File transport error:', err);
+    });
+  });
+
+  transports.push(errorTransport, combinedTransport);
+}
 
 const logger = winston.createLogger({
-  level: logLevel,
-  format: logFormat,
-  transports: [
-    new winston.transports.Console(),
-    ...(isProduction ? [
-      new winston.transports.File({ 
-        filename: path.join(process.cwd(), 'logs', 'error.log'), 
-        level: 'error' 
-      }),
-      new winston.transports.File({ 
-        filename: path.join(process.cwd(), 'logs', 'combined.log') 
-      })
-    ] : [])
-  ],
-  exitOnError: false
+  level: config.logLevel || 'info',
+  format: combine(
+    timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    errors({ stack: true }),
+    logFormat
+  ),
+  transports,
+  exitOnError: false,
 });
 
 module.exports = logger;

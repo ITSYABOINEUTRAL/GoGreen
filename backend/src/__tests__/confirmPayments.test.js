@@ -112,4 +112,59 @@ describe('SEP-0007 payment confirmation job', () => {
       [3, 10],
     ]);
   });
+
+  it('timeout branch marks order failed and restores quantity', async () => {
+    db.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 99,
+            total_price: 4,
+            stellar_memo: 'order:99',
+            quantity: 2,
+            product_id: 11,
+            created_at: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+            farmer_public_key: 'GFARMER',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 1 });
+    findIncomingPaymentsByMemo.mockResolvedValue(new Map());
+
+    await confirmPendingOrders();
+
+    expect(db.query.mock.calls[1][0]).toContain("status = 'failed'");
+    expect(db.query.mock.calls[2]).toEqual([
+      'UPDATE products SET quantity = quantity + $1 WHERE id = $2 RETURNING quantity',
+      [2, 11],
+    ]);
+  });
+
+  it('confirmed branch marks order paid with stellar_tx_hash', async () => {
+    db.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 88,
+            total_price: 1.5,
+            stellar_memo: 'order:88',
+            quantity: 1,
+            product_id: 5,
+            created_at: new Date().toISOString(),
+            farmer_public_key: 'GFARMER',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] });
+    findIncomingPaymentsByMemo.mockResolvedValue(new Map([['order:88', 'TX88']]));
+
+    await confirmPendingOrders();
+
+    expect(db.query.mock.calls[1]).toEqual([
+      expect.stringContaining("SET status = 'paid', stellar_tx_hash = $1"),
+      ['TX88', 88, 'order:88'],
+    ]);
+  });
 });

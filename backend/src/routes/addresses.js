@@ -3,6 +3,15 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
+function parseId(req, res) {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || String(id) !== String(req.params.id)) {
+    err(res, 400, 'Invalid address id', 'validation_error');
+    return null;
+  }
+  return id;
+}
+
 // GET /api/addresses
 router.get('/', auth, async (req, res) => {
   if (req.user.role !== 'buyer')
@@ -57,32 +66,33 @@ router.post('/', auth, async (req, res) => {
 router.put('/:id', auth, async (req, res) => {
   if (req.user.role !== 'buyer')
     return err(res, 403, 'Only buyers can manage addresses', 'forbidden');
+  const id = parseId(req, res);
+  if (id === null) return;
   const { label, street, city, country, postal_code, is_default } = req.body;
   if (!label || !street || !city || !country)
     return err(res, 400, 'label, street, city, and country are required', 'validation_error');
 
   const { rows } = await db.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [
-    req.params.id,
+    id,
     req.user.id,
   ]);
   if (!rows[0]) return err(res, 404, 'Address not found', 'not_found');
 
-  if (is_default)
-    await db.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
-
-  await db.query(
-    'UPDATE addresses SET label=$1, street=$2, city=$3, country=$4, postal_code=$5, is_default=$6 WHERE id=$7',
-    [
-      label.trim(),
-      street.trim(),
-      city.trim(),
-      country.trim(),
-      postal_code?.trim() || null,
-      is_default ? 1 : 0,
-      req.params.id,
-    ]
-  );
-  const { rows: addr } = await db.query('SELECT * FROM addresses WHERE id = $1', [req.params.id]);
+  if (is_default) {
+    await db.withTransaction(async (tx) => {
+      await tx.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
+      await tx.query(
+        'UPDATE addresses SET label=$1, street=$2, city=$3, country=$4, postal_code=$5, is_default=$6 WHERE id=$7 AND user_id=$8',
+        [label.trim(), street.trim(), city.trim(), country.trim(), postal_code?.trim() || null, 1, id, req.user.id]
+      );
+    });
+  } else {
+    await db.query(
+      'UPDATE addresses SET label=$1, street=$2, city=$3, country=$4, postal_code=$5, is_default=$6 WHERE id=$7 AND user_id=$8',
+      [label.trim(), street.trim(), city.trim(), country.trim(), postal_code?.trim() || null, 0, id, req.user.id]
+    );
+  }
+  const { rows: addr } = await db.query('SELECT * FROM addresses WHERE id = $1', [id]);
   res.json({ success: true, data: addr[0] });
 });
 
@@ -90,16 +100,20 @@ router.put('/:id', auth, async (req, res) => {
 router.patch('/:id/default', auth, async (req, res) => {
   if (req.user.role !== 'buyer')
     return err(res, 403, 'Only buyers can manage addresses', 'forbidden');
+  const id = parseId(req, res);
+  if (id === null) return;
   const { rows } = await db.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [
-    req.params.id,
+    id,
     req.user.id,
   ]);
   if (!rows[0]) return err(res, 404, 'Address not found', 'not_found');
 
-  await db.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
-  await db.query('UPDATE addresses SET is_default = 1 WHERE id = $1', [req.params.id]);
+  await db.withTransaction(async (tx) => {
+    await tx.query('UPDATE addresses SET is_default = 0 WHERE user_id = $1', [req.user.id]);
+    await tx.query('UPDATE addresses SET is_default = 1 WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  });
 
-  const { rows: addr } = await db.query('SELECT * FROM addresses WHERE id = $1', [req.params.id]);
+  const { rows: addr } = await db.query('SELECT * FROM addresses WHERE id = $1', [id]);
   res.json({ success: true, data: addr[0] });
 });
 
@@ -107,21 +121,23 @@ router.patch('/:id/default', auth, async (req, res) => {
 router.delete('/:id', auth, async (req, res) => {
   if (req.user.role !== 'buyer')
     return err(res, 403, 'Only buyers can manage addresses', 'forbidden');
+  const id = parseId(req, res);
+  if (id === null) return;
   const { rows } = await db.query('SELECT * FROM addresses WHERE id = $1 AND user_id = $2', [
-    req.params.id,
+    id,
     req.user.id,
   ]);
   if (!rows[0]) return err(res, 404, 'Address not found', 'not_found');
 
   const { rows: orderRows } = await db.query(
     'SELECT COUNT(*) as count FROM orders WHERE address_id = $1',
-    [req.params.id]
+    [id]
   );
   if (parseInt(orderRows[0].count) > 0)
     return err(res, 400, 'Cannot delete address that has been used in orders', 'address_in_use');
 
   const wasDefault = Boolean(rows[0].is_default);
-  await db.query('DELETE FROM addresses WHERE id = $1', [req.params.id]);
+  await db.query('DELETE FROM addresses WHERE id = $1', [id]);
 
   if (wasDefault) {
     // Normalize any remaining rows before promoting the newest address. This

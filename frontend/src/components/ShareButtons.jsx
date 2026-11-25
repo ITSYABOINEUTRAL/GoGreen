@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { api } from "../api/client";
 
 const s = {
@@ -34,13 +34,22 @@ const s = {
 
 export default function ShareButtons({ productId, title, url, onShare }) {
   const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(`${title} ${url}`);
   const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   const showToast = useCallback((message, type) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 2000);
+    toastTimer.current = setTimeout(() => setToast(null), 2000);
   }, []);
 
   async function recordShare(platform) {

@@ -235,7 +235,7 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
     <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 8px #0001' }}>
       <h3 style={{ marginBottom: 16, color: '#333' }}>Add New Product</h3>
       {msg && <div style={{ ...s.msg, background: msg.type === 'ok' ? '#d8f3dc' : '#fee', color: msg.type === 'ok' ? '#2d6a4f' : '#c0392b' }}>{msg.text}</div>}
-      <form onSubmit={handleAdd}>
+      <form onSubmit={handleAdd} aria-label="Add product">
         {[['name', 'Product Name', 'prod-name'], ['price', 'Price (XLM)', 'prod-price'], ['quantity', 'Quantity', 'prod-qty'], ['unit', 'Unit (kg, bunch, etc.)', 'prod-unit']].map(([key, label, id]) => (
           <div key={key}>
             <label style={s.label} htmlFor={id}>{label}</label>
@@ -258,18 +258,18 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
           </div>
         ))}
 
-        <label style={s.label}>Description</label>
-        <textarea style={s.textarea} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+        <label style={s.label} htmlFor="pf-description">Description</label>
+        <textarea id="pf-description" aria-label="Description" style={s.textarea} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
 
-        <label style={s.label}>Category</label>
-        <select style={s.input} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+        <label style={s.label} htmlFor="pf-category">Category</label>
+        <select id="pf-category" aria-label="Category" style={s.input} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
           {['vegetables', 'fruits', 'grains', 'dairy', 'herbs', 'other'].map(c => (
             <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
           ))}
         </select>
 
-        <label style={s.label}>Harvest batch (optional)</label>
-        <select style={s.input} value={form.batch_id} onChange={e => setForm({ ...form, batch_id: e.target.value })}>
+        <label style={s.label} htmlFor="pf-batch">Harvest batch (optional)</label>
+        <select id="pf-batch" aria-label="Harvest batch" style={s.input} value={form.batch_id} onChange={e => setForm({ ...form, batch_id: e.target.value })}>
           <option value="">No batch</option>
           {harvestBatches.map(b => (
             <option key={b.id} value={b.id}>{b.batch_code} — {b.harvest_date}</option>
@@ -285,22 +285,22 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
         <div style={{ fontSize: 13, fontWeight: 600, color: '#555', marginBottom: 8 }}>Create new batch</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           <div>
-            <label style={s.label}>Batch code</label>
-            <input style={s.input} value={batchForm.batch_code} onChange={e => setBatchForm(f => ({ ...f, batch_code: e.target.value }))} placeholder="e.g. H-2026-03-A" />
+            <label style={s.label} htmlFor="pf-batch-code">Batch code</label>
+            <input id="pf-batch-code" aria-label="Batch code" style={s.input} value={batchForm.batch_code} onChange={e => setBatchForm(f => ({ ...f, batch_code: e.target.value }))} placeholder="e.g. H-2026-03-A" />
           </div>
           <div>
-            <label style={s.label}>Harvest date</label>
-            <input style={s.input} type="date" value={batchForm.harvest_date} onChange={e => setBatchForm(f => ({ ...f, harvest_date: e.target.value }))} />
+            <label style={s.label} htmlFor="pf-batch-harvest-date">Harvest date</label>
+            <input id="pf-batch-harvest-date" aria-label="Harvest date" style={s.input} type="date" value={batchForm.harvest_date} onChange={e => setBatchForm(f => ({ ...f, harvest_date: e.target.value }))} />
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={s.label}>Notes (optional)</label>
-            <input style={s.input} value={batchForm.notes} onChange={e => setBatchForm(f => ({ ...f, notes: e.target.value }))} placeholder="Field block, variety…" />
+            <label style={s.label} htmlFor="pf-batch-notes">Notes (optional)</label>
+            <input id="pf-batch-notes" aria-label="Notes (optional)" style={s.input} value={batchForm.notes} onChange={e => setBatchForm(f => ({ ...f, notes: e.target.value }))} placeholder="Field block, variety…" />
           </div>
           <button type="button" style={{ ...s.btn, gridColumn: '1 / -1', justifySelf: 'start' }} onClick={handleCreateBatch}>Save batch</button>
         </div>
 
-        <label style={s.label}>Pricing Type</label>
-        <select style={s.input} value={form.pricing_type || 'unit'} onChange={e => setForm({ ...form, pricing_type: e.target.value })}>
+        <label style={s.label} htmlFor="pf-pricing-type">Pricing Type</label>
+        <select id="pf-pricing-type" aria-label="Pricing Type" style={s.input} value={form.pricing_type || 'unit'} onChange={e => setForm({ ...form, pricing_type: e.target.value })}>
           <option value="unit">Per unit / fixed quantity</option>
           <option value="weight">By weight (price per kg/lb)</option>
         </select>
@@ -318,11 +318,11 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
           </div>
         )}
 
-        <label style={s.label}>Min Order Quantity (MOQ)</label>
-        <input style={s.input} type="number" min="1" step="1" value={form.min_order_quantity || ''} onChange={e => setForm({ ...form, min_order_quantity: e.target.value })} placeholder="1 (default)" />
+        <label style={s.label} htmlFor="pf-moq">Min Order Quantity (MOQ)</label>
+        <input id="pf-moq" aria-label="Min Order Quantity (MOQ)" style={s.input} type="number" min="1" step="1" value={form.min_order_quantity || ''} onChange={e => setForm({ ...form, min_order_quantity: e.target.value })} placeholder="1 (default)" />
 
-        <label style={s.label}>Pricing Model</label>
-        <select style={s.input} value={form.pricing_model || 'fixed'} onChange={e => setForm({ ...form, pricing_model: e.target.value, min_price: e.target.value === 'pwyw' ? (form.min_price || '') : '' })}>
+        <label style={s.label} htmlFor="pf-pricing-model">Pricing Model</label>
+        <select id="pf-pricing-model" aria-label="Pricing Model" style={s.input} value={form.pricing_model || 'fixed'} onChange={e => setForm({ ...form, pricing_model: e.target.value, min_price: e.target.value === 'pwyw' ? (form.min_price || '') : '' })}>
           <option value="fixed">Fixed Price</option>
           <option value="pwyw">Pay What You Want</option>
           <option value="donation">Donation</option>
@@ -390,8 +390,10 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginTop: 8 }}>
             {[['calories', 'Calories', 'e.g. 50'], ['protein', 'Protein (g)', 'e.g. 2.5'], ['carbs', 'Carbs (g)', 'e.g. 10'], ['fat', 'Fat (g)', 'e.g. 1.2'], ['fiber', 'Fiber (g)', 'e.g. 3']].map(([field, label, placeholder]) => (
               <div key={field}>
-                <label style={s.label}>{label}</label>
+                <label style={s.label} htmlFor={`pf-nutrition-${field}`}>{label}</label>
                 <input
+                  id={`pf-nutrition-${field}`}
+                  aria-label={label}
                   style={{ ...s.input, borderColor: formErrors.nutrition?.[field] ? '#c0392b' : '#ddd' }}
                   type="number"
                   min="0"
@@ -420,7 +422,7 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
 
         {form.is_preorder && (
           <>
-            <label style={s.label}>Expected Delivery Date</label>
+            <label style={s.label} htmlFor="prod-preorder-date">Expected Delivery Date</label>
             <input
               id="prod-preorder-date"
               style={formErrors.preorder_delivery_date ? s.inputErr : s.input}
@@ -434,17 +436,17 @@ export default function ProductForm({ harvestBatches, onProductAdded }) {
           </>
         )}
 
-        <label style={s.label}>Harvest Date (optional)</label>
-        <input style={s.input} type="date" value={form.harvest_date} onChange={e => setForm({ ...form, harvest_date: e.target.value })} />
+        <label style={s.label} htmlFor="pf-harvest-date">Harvest Date (optional)</label>
+        <input id="pf-harvest-date" aria-label="Harvest Date (optional)" style={s.input} type="date" value={form.harvest_date} onChange={e => setForm({ ...form, harvest_date: e.target.value })} />
 
-        <label style={s.label}>Best Before Date (optional)</label>
-        <input style={s.input} type="date" value={form.best_before} onChange={e => setForm({ ...form, best_before: e.target.value })} />
+        <label style={s.label} htmlFor="pf-best-before">Best Before Date (optional)</label>
+        <input id="pf-best-before" aria-label="Best Before Date (optional)" style={s.input} type="date" value={form.best_before} onChange={e => setForm({ ...form, best_before: e.target.value })} />
 
-        <label style={s.label}>Available From (optional)</label>
-        <input style={s.input} type="datetime-local" value={form.available_from} onChange={e => setForm({ ...form, available_from: e.target.value })} />
+        <label style={s.label} htmlFor="pf-available-from">Available From (optional)</label>
+        <input id="pf-available-from" aria-label="Available From (optional)" style={s.input} type="datetime-local" value={form.available_from} onChange={e => setForm({ ...form, available_from: e.target.value })} />
 
-        <label style={s.label}>Available Until (optional)</label>
-        <input style={s.input} type="datetime-local" value={form.available_until} onChange={e => setForm({ ...form, available_until: e.target.value })} />
+        <label style={s.label} htmlFor="pf-available-until">Available Until (optional)</label>
+        <input id="pf-available-until" aria-label="Available Until (optional)" style={s.input} type="datetime-local" value={form.available_until} onChange={e => setForm({ ...form, available_until: e.target.value })} />
 
         {/* Image upload */}
         <label style={s.label}>{t('dashboard.productImage')} <span style={{ color: '#aaa', fontWeight: 400 }}>{t('dashboard.imageHint')}</span></label>

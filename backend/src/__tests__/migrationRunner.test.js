@@ -167,3 +167,217 @@ describe('migrate.js SQLite adapter SELECT/WITH detection', () => {
     expect(result).toEqual({ rows: [], rowCount: 1 });
   });
 });
+
+describe('migration identity uniqueness', () => {
+  const { assertUniqueMigrationIdentities, getPendingFiles, runMigrations } = require('../db/migrationRunner');
+
+  it('applies two same-prefix different-description migrations', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-prefix-'));
+    const sqlite = new Database(':memory:');
+    const db = {
+      isPostgres: false,
+      placeholder: () => '?',
+      exec: async (sql) => sqlite.exec(sql),
+      query: async (sql, params = []) => {
+        if (/^SELECT/i.test(sql)) return { rows: sqlite.prepare(sql).all(...params) };
+        sqlite.prepare(sql).run(...params);
+        return { rows: [] };
+      },
+    };
+    try {
+      fs.writeFileSync(path.join(dir, '003_a.sql'), 'CREATE TABLE a (id INTEGER);');
+      fs.writeFileSync(path.join(dir, '003_a.undo.sql'), 'DROP TABLE a;');
+      fs.writeFileSync(path.join(dir, '003_b.sql'), 'CREATE TABLE b (id INTEGER);');
+      fs.writeFileSync(path.join(dir, '003_b.undo.sql'), 'DROP TABLE b;');
+      await runMigrations(db, dir);
+      const applied = await db.query('SELECT name FROM migrations ORDER BY name');
+      expect(applied.rows.map((r) => r.name)).toEqual(['003_a.sql', '003_b.sql']);
+    } finally {
+      sqlite.close();
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it('rejects a duplicated full migration identity', () => {
+    expect(() => assertUniqueMigrationIdentities(['001_a.sql', '001_a.sql'])).toThrow(
+      /Duplicate migration identity/,
+    );
+  });
+});
+
+describe('migrationRunner getAdapter dialect validation', () => {
+  const { getAdapter: getRunnerAdapter } = require('../db/migrationRunner');
+
+  it('throws for an unknown dialect instead of opening the SQLite file', () => {
+    expect(() => getRunnerAdapter('postgresql')).toThrow(/Unsupported dialect/);
+  });
+
+  it('still returns a working SQLite adapter for an injected in-memory database', () => {
+    const adapter = getRunnerAdapter('sqlite', new Database(':memory:'));
+
+    expect(adapter.query('SELECT 1 AS n')).toEqual({ rows: [{ n: 1 }] });
+  });
+});
+
+describe('review schema migration and rollback', () => {
+  const runnerAdapter = (sqlite) => ({
+    isPostgres: false,
+    placeholder: () => '?',
+    exec: async (sql) => sqlite.exec(sql),
+    query: async (sql, params = []) => {
+      if (/^SELECT/i.test(sql)) return { rows: sqlite.prepare(sql).all(...params) };
+      sqlite.prepare(sql).run(...params);
+      return { rows: [] };
+    },
+  });
+
+  const columnsOf = (sqlite, table) =>
+    sqlite.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+
+  it('adds the review columns when 034_reviews_schema.sql is applied', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-schema-'));
+    const sqlite = new Database(':memory:');
+    try {
+      fs.writeFileSync(
+        path.join(dir, '001_base.sql'),
+        'CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE reviews (id INTEGER PRIMARY KEY, body TEXT);'
+      );
+      fs.writeFileSync(path.join(dir, '034_reviews_schema.sql'), 'SELECT 1;');
+
+      await runMigrations(runnerAdapter(sqlite), dir);
+
+      expect(columnsOf(sqlite, 'products')).toEqual(
+        expect.arrayContaining(['avg_rating', 'review_count'])
+      );
+      expect(columnsOf(sqlite, 'reviews')).toEqual(
+        expect.arrayContaining(['order_id', 'comment', 'status'])
+      );
+    } finally {
+      sqlite.close();
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  describe('rollback', () => {
+    let sqlite;
+    let errorSpy;
+    let logSpy;
+    let savedDatabaseUrl;
+
+    beforeEach(() => {
+      // migrate.js picks Postgres when DATABASE_URL is set, so clear it for these tests.
+      savedDatabaseUrl = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = '';
+      sqlite = new Database(':memory:');
+      sqlite.exec(
+        'CREATE TABLE migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+      );
+      errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.dontMock('better-sqlite3');
+      if (savedDatabaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = savedDatabaseUrl;
+      }
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+      if (sqlite.open) sqlite.close();
+    });
+
+    // migrate.js opens market.db itself, so route its better-sqlite3 import to the
+    // in-memory database. close() is a no-op so the test can inspect the database afterwards.
+    function loadMigrate() {
+      const handle = {
+        prepare: (sql) => sqlite.prepare(sql),
+        exec: (sql) => sqlite.exec(sql),
+        close: () => {},
+      };
+      let migrate;
+      jest.isolateModules(() => {
+        jest.doMock('better-sqlite3', () => function OpenDatabase() {
+          return handle;
+        });
+        migrate = require('../../migrate');
+      });
+      return migrate;
+    }
+
+    it('exits with code 1 when the last applied migration has no undo file', async () => {
+      sqlite.prepare('INSERT INTO migrations (name) VALUES (?)').run('999_without_undo.sql');
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      try {
+        const { rollback } = loadMigrate();
+
+        await expect(rollback()).rejects.toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          '[migrate] No rollback file found: 999_without_undo.undo.sql'
+        );
+      } finally {
+        exitSpy.mockRestore();
+      }
+    });
+
+    it('applies the undo SQL and removes the migration row when the undo file exists', async () => {
+      sqlite.prepare('INSERT INTO migrations (name) VALUES (?)').run('034_reviews_schema.sql');
+      const { rollback } = loadMigrate();
+
+      await rollback();
+
+      expect(sqlite.prepare('SELECT name FROM migrations').all()).toEqual([]);
+      expect(logSpy).toHaveBeenCalledWith('[migrate] ✓ Rolled back 034_reviews_schema.sql');
+    });
+  });
+});
+
+describe('migrationRunner pending and undo selection', () => {
+  const runner = require('../db/migrationRunner');
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-selection-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it('getPendingFiles excludes undo files and files already applied', () => {
+    for (const file of ['001_a.sql', '001_a.undo.sql', '002_b.sql', '002_b.undo.sql', '003_c.sql']) {
+      fs.writeFileSync(path.join(dir, file), '');
+    }
+
+    expect(getPendingFiles(new Set(['001_a.sql']), dir)).toEqual(['002_b.sql', '003_c.sql']);
+  });
+
+  it('resolveUndoPath prefers the postgres undo file over the generic one', () => {
+    fs.writeFileSync(path.join(dir, '001_a.undo.postgres'), 'DROP TABLE a;');
+    fs.writeFileSync(path.join(dir, '001_a.undo.sql'), 'DROP TABLE a;');
+
+    expect(runner.resolveUndoPath(dir, '001_a.sql', 'postgres')).toBe(
+      path.join(dir, '001_a.undo.postgres')
+    );
+  });
+
+  it('resolveUndoPath returns null when neither undo file exists', () => {
+    expect(runner.resolveUndoPath(dir, '001_a.sql', 'postgres')).toBeNull();
+    expect(runner.resolveUndoPath(dir, '001_a.sql', 'sqlite')).toBeNull();
+  });
+});
+
+  it('rejects a duplicated full migration identity', () => {
+    expect(() => assertUniqueMigrationIdentities(['001_a.sql', '001_a.sql'])).toThrow(
+      /Duplicate migration identity/,
+    );
+  });
+});
+
+  });
+});

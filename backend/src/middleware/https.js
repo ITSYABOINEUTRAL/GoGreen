@@ -8,6 +8,16 @@
 
 const HSTS_MAX_AGE = 31536000; // 1 year in seconds
 
+function buildHttpsLocation(req) {
+  // Prefer hostname + port so a raw Host header with a port stays well-formed.
+  const hostname = req.hostname || (req.headers.host || '').split(':')[0] || 'localhost';
+  const hostHeader = req.headers.host || hostname;
+  const hasPort = /:\d+$/.test(hostHeader);
+  const port = hasPort ? hostHeader.slice(hostHeader.lastIndexOf(':') + 1) : (req.port || null);
+  const host = port && String(port) !== '443' ? `${hostname}:${port}` : hostname;
+  return `https://${host}${req.originalUrl || ''}`;
+}
+
 function enforceHttps(req, res, next) {
   if (process.env.NODE_ENV !== 'production') return next();
 
@@ -15,8 +25,7 @@ function enforceHttps(req, res, next) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
 
   if (proto !== 'https') {
-    const httpsUrl = `https://${req.headers.host}${req.originalUrl}`;
-    return res.redirect(301, httpsUrl);
+    return res.redirect(301, buildHttpsLocation(req));
   }
 
   next();
@@ -30,4 +39,4 @@ function hsts(req, res, next) {
   next();
 }
 
-module.exports = { enforceHttps, hsts };
+module.exports = { enforceHttps, hsts, buildHttpsLocation };

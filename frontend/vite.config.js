@@ -22,16 +22,17 @@ function serviceWorkerVersion() {
       let sw;
       try {
         sw = readFileSync(swPath, 'utf8');
-      } catch {
-        return;
+      } catch (err) {
+        throw new Error(`serviceWorkerVersion: missing ${swPath}: ${err.message}`);
       }
       const stamped = sw.replace(
         /self\.__APP_VERSION__\s*\|\|\s*'[^']*'/,
         JSON.stringify(pkg.version),
       );
-      if (stamped !== sw) {
-        writeFileSync(swPath, stamped);
+      if (stamped === sw) {
+        throw new Error(`serviceWorkerVersion: version placeholder not found in ${swPath}`);
       }
+      writeFileSync(swPath, stamped);
     },
   };
 }
@@ -68,3 +69,5 @@ export default defineConfig({
     setupFiles: './src/test/setup.js',
   },
 });
+
+export { serviceWorkerVersion };

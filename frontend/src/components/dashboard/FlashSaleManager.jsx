@@ -98,19 +98,21 @@ export default function FlashSaleManager({ products, onChanged }) {
 
       <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
         <div>
-          <label style={s.label}>Product</label>
-          <select style={s.input} value={form.product_id} onChange={e => setForm(f => ({ ...f, product_id: e.target.value }))} required>
+          <label style={s.label} htmlFor="fsm-product">Product</label>
+          <select id="fsm-product" aria-label="Product" style={s.input} value={form.product_id} onChange={e => setForm(f => ({ ...f, product_id: e.target.value }))} required>
             <option value="">Select product</option>
             {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <div>
-          <label style={s.label}>Flash Price (XLM)</label>
-          <input style={s.input} type="number" min="0" step="any" required value={form.flash_sale_price} onChange={e => setForm(f => ({ ...f, flash_sale_price: e.target.value }))} />
+          <label style={s.label} htmlFor="fsm-flash-price">Flash Price (XLM)</label>
+          <input id="fsm-flash-price" aria-label="Flash Price (XLM)" style={s.input} type="number" min="0" step="any" required value={form.flash_sale_price} onChange={e => setForm(f => ({ ...f, flash_sale_price: e.target.value }))} />
         </div>
         <div>
-          <label style={s.label}>Ends At</label>
+          <label style={s.label} htmlFor="fsm-ends-at">Ends At</label>
           <input
+            id="fsm-ends-at"
+            aria-label="Ends At"
             style={{ ...s.input, ...(endsAtError ? { borderColor: '#c0392b' } : {}) }}
             type="datetime-local"
             required

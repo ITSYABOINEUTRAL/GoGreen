@@ -53,20 +53,46 @@ async function deliverWebhook(url, secret, payload, attempt = 1) {
 
 async function fireOrderWebhook(db, event, order) {
   if (!SUPPORTED_EVENTS.includes(event)) return;
-  const farmer = await db("farmers").where({ id: order.farmer_id }).first();
+
+  let farmer;
+  try {
+    farmer = await db("farmers").where({ id: order.farmer_id }).first();
+  } catch (err) {
+    logger.error(`[webhook] Farmer lookup failed for order ${order.id}`, {
+      error: err.message,
+    });
+    return;
+  }
+
   if (!farmer?.webhook_url || !farmer?.webhook_secret) return;
+
   const payload = buildPayload(event, order);
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const result = await deliverWebhook(farmer.webhook_url, farmer.webhook_secret, payload, attempt);
-    await db("webhook_deliveries").insert({
-      order_id: order.id,
-      event,
-      url: farmer.webhook_url,
-      status_code: result.status,
-      success: result.ok,
-      response_body: result.body?.slice(0, 1000),
-      attempt,
-    });
+    const result = await deliverWebhook(
+      farmer.webhook_url,
+      farmer.webhook_secret,
+      payload,
+      attempt
+    );
+
+    try {
+      await db("webhook_deliveries").insert({
+        order_id: order.id,
+        event,
+        url: farmer.webhook_url,
+        status_code: result.status,
+        success: result.ok,
+        response_body: result.body?.slice(0, 1000),
+        attempt,
+      });
+    } catch (err) {
+      logger.error(`[webhook] Failed to record delivery attempt for order ${order.id}`, {
+        error: err.message,
+        attempt,
+        event,
+      });
+    }
+
     if (result.ok) return;
     if (attempt < MAX_RETRIES) {
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
@@ -75,4 +101,10 @@ async function fireOrderWebhook(db, event, order) {
   logger.error(`[webhook] All ${MAX_RETRIES} attempts failed for order ${order.id} event ${event}`);
 }
 
-module.exports = { fireOrderWebhook, signPayload, SUPPORTED_EVENTS };
+module.exports = {
+  fireOrderWebhook,
+  signPayload,
+  deliverWebhook,
+  SUPPORTED_EVENTS,
+  MAX_RETRIES,
+};

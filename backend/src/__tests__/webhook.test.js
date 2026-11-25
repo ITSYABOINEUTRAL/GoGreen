@@ -117,7 +117,7 @@ describe('webhookVerify', () => {
       return res;
     }
 
-    it('calls next() when signature is valid and no timestamp is provided', async () => {
+    it('returns 400 when signature is valid but timestamp header is missing', async () => {
       const body = '{"order_id":1}';
       const sig = makeSignature(SECRET, body);
       const req = makeReq({ body, signature: sig, rawBody: body });
@@ -128,8 +128,9 @@ describe('webhookVerify', () => {
       const mw = webhookMiddleware(getSecret);
       await mw(req, res, next);
 
-      expect(next).toHaveBeenCalled();
-      expect(res.status).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'replay_detected' }));
+      expect(next).not.toHaveBeenCalled();
     });
 
     it('returns 401 when signature header is missing', async () => {
@@ -245,7 +246,10 @@ describe('webhookVerify', () => {
       const sig = makeSignature(SECRET, serialized);
       // No rawBody provided — middleware must serialise req.body itself
       const req = {
-        headers: { 'x-webhook-signature': sig },
+        headers: {
+          'x-webhook-signature': sig,
+          'x-webhook-timestamp': String(Date.now()),
+        },
         body: bodyObj,
       };
       const res = makeRes();

@@ -54,10 +54,6 @@ const BPS_DENOMINATOR: u32 = 10_000;
 /// Upper bound on the platform fee (10%), enforced by `initialize()` and re-checked
 /// whenever the stored value is read.
 const MAX_FEE_BPS: u32 = 1_000;
-/// Maximum order_ids kept per address in the buyer/farmer escrow indexes. (#1289)
-/// Each deposit rewrites the whole index vector, so read/write cost grows
-/// linearly with its length; once full, the oldest entry is dropped.
-const MAX_INDEX_ENTRIES: u32 = 1_000;
 
 // ---------------------------------------------------------------------------
 // EscrowError discriminant registry
@@ -2278,6 +2274,59 @@ mod test {
     const MAX_BATCH_RELEASE_CPU_BUDGET: u64 = 12_000_000;
     const MAX_BATCH_RELEASE_MEMORY_BUDGET: u64 = 3_000_000;
 
+    /// Must match the `// NEXT_CODE: N` comment above `EscrowError`.
+    const ESCROW_ERROR_NEXT_CODE: u32 = 32;
+
+    #[test]
+    fn escrow_error_discriminants_are_unique_and_next_code_matches() {
+        use std::collections::HashSet;
+        let codes = [
+            EscrowError::NotFound as u32,
+            EscrowError::AlreadySettled as u32,
+            EscrowError::InDispute as u32,
+            EscrowError::Unauthorized as u32,
+            EscrowError::InvalidAmount as u32,
+            EscrowError::AlreadyExists as u32,
+            EscrowError::TimeoutNotReached as u32,
+            EscrowError::InvalidWasmHash as u32,
+            EscrowError::NoPendingAdmin as u32,
+            EscrowError::InvalidToken as u32,
+            EscrowError::MigrationFailed as u32,
+            EscrowError::NotEnoughSignatures as u32,
+            EscrowError::CoopNotConfigured as u32,
+            EscrowError::AlreadyInitialized as u32,
+            EscrowError::NotAdmin as u32,
+            EscrowError::BelowMinDeposit as u32,
+            EscrowError::BatchTooLarge as u32,
+            EscrowError::SnapshotNotFound as u32,
+            EscrowError::NotYetReleasable as u32,
+            EscrowError::SubmissionWindowClosed as u32,
+            EscrowError::AutoReleaseNotReached as u32,
+            EscrowError::TooManyCoopSigners as u32,
+            EscrowError::NotDisputed as u32,
+            EscrowError::EvidenceLimitReached as u32,
+            EscrowError::InvalidCoopConfig as u32,
+            EscrowError::InvalidTimeout as u32,
+            EscrowError::InvalidOrderId as u32,
+            EscrowError::InvalidRoyalty as u32,
+            EscrowError::NotInitialized as u32,
+            EscrowError::NotInDispute as u32,
+            EscrowError::InvalidParties as u32,
+        ];
+        let set: HashSet<_> = codes.iter().copied().collect();
+        assert_eq!(
+            set.len(),
+            codes.len(),
+            "EscrowError discriminants must be unique"
+        );
+        let max = codes.iter().copied().max().unwrap();
+        assert_eq!(
+            ESCROW_ERROR_NEXT_CODE,
+            max + 1,
+            "NEXT_CODE must equal highest discriminant + 1"
+        );
+    }
+
     fn store_escrow(env: &Env, order_id: u64, buyer: Address, farmer: Address, token: Address) {
         let escrow = Escrow {
             buyer,
@@ -3826,22 +3875,56 @@ mod test {
         let env = Env::default();
         let contract_id = env.register(EscrowContract, ());
         env.mock_all_auths();
-        env.clone().as_contract(&contract_id, || setup_admin_for(&env));
-        // One contract frame per call: require_auth may only be recorded once per frame.
-        env.clone().as_contract(&contract_id, || {
-        let contract_id = env.register(EscrowContract, ());
         env.clone().as_contract(&contract_id, || {
             setup_admin_for(&env);
             assert_eq!(
                 EscrowContract::set_min_deposit(env.clone(), MAX_MIN_DEPOSIT + 1),
                 Err(EscrowError::InvalidAmount)
             );
-        });
-        env.clone().as_contract(&contract_id, || {
             assert_eq!(
                 EscrowContract::set_min_deposit(env.clone(), i128::MAX),
                 Err(EscrowError::InvalidAmount)
             );
+        });
+    }
+
+    #[test]
+    fn set_min_deposit_accepts_max_boundary() {
+        let env = Env::default();
+        let contract_id = env.register(EscrowContract, ());
+        env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+            setup_admin_for(&env);
+            EscrowContract::set_min_deposit(env.clone(), MAX_MIN_DEPOSIT).unwrap();
+            assert_eq!(EscrowContract::get_min_deposit(env), MAX_MIN_DEPOSIT);
+        });
+    }
+
+    #[test]
+    fn deposit_below_configured_minimum_rejected() {
+        let env = Env::default();
+        let contract_id = env.register(EscrowContract, ());
+        env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+            setup_admin_for(&env);
+            let configured_min = 10_000_000_i128;
+            EscrowContract::set_min_deposit(env.clone(), configured_min).unwrap();
+            let token = Address::generate(&env);
+            let buyer = Address::generate(&env);
+            let farmer = Address::generate(&env);
+            let result = EscrowContract::deposit(
+                env,
+                token,
+                700,
+                buyer,
+                farmer,
+                configured_min - 1,
+                u64::MAX,
+                None,
+                0,
+                0,
+            );
+            assert_eq!(result, Err(EscrowError::BelowMinDeposit));
         });
     }
 
@@ -5437,6 +5520,10 @@ mod deposit_path_test {
                 .storage()
                 .persistent()
                 .set(&DataKey::BuyerEscrows(fx.buyer.clone()), &ids);
+            fx.env
+                .storage()
+                .persistent()
+                .set(&DataKey::FarmerEscrows(fx.farmer.clone()), &ids);
         });
         fx.deposit(5_000);
         let all = fx.client().get_buyer_escrows(&fx.buyer, &(MAX_INDEX_ENTRIES - 1), &10);
@@ -5444,6 +5531,18 @@ mod deposit_path_test {
         assert_eq!(all.escrows, sdk_vec![&fx.env, 5_000u64]);
         let first = fx.client().get_buyer_escrows(&fx.buyer, &0, &1);
         assert_eq!(first.escrows, sdk_vec![&fx.env, 1u64], "oldest (0) was pruned");
+
+        let farmer_tail =
+            fx.client()
+                .get_farmer_escrows(&fx.farmer, &(MAX_INDEX_ENTRIES - 1), &10);
+        assert_eq!(farmer_tail.total, MAX_INDEX_ENTRIES);
+        assert_eq!(farmer_tail.escrows, sdk_vec![&fx.env, 5_000u64]);
+        let farmer_first = fx.client().get_farmer_escrows(&fx.farmer, &0, &1);
+        assert_eq!(
+            farmer_first.escrows,
+            sdk_vec![&fx.env, 1u64],
+            "farmer index oldest (0) was pruned"
+        );
     }
 
     #[test]
@@ -5558,6 +5657,28 @@ mod deposit_path_test {
             entries.push_back(batch_entry(&env, 300, &token, MIN_DEPOSIT_STROOPS, timeout));
             entries.push_back(batch_entry(&env, 300, &token, MIN_DEPOSIT_STROOPS, timeout));
             assert_batch_rejected(&env, entries, EscrowError::AlreadyExists);
+        });
+    }
+
+    #[test]
+    fn batch_deposit_accepts_max_sized_batch() {
+        let env = Env::default();
+        let contract_id = env.register(EscrowContract, ());
+        env.mock_all_auths();
+        env.clone().as_contract(&contract_id, || {
+            let token = Address::generate(&env);
+            let timeout = env.ledger().timestamp() + MIN_TIMEOUT_SECS + 1;
+            let mut entries = Vec::new(&env);
+            for i in 0..MAX_BATCH_DEPOSIT {
+                entries.push_back(batch_entry(
+                    &env,
+                    400 + u64::from(i),
+                    &token,
+                    MIN_DEPOSIT_STROOPS,
+                    timeout,
+                ));
+            }
+            assert_eq!(EscrowContract::batch_deposit(env.clone(), entries), Ok(()));
         });
     }
 

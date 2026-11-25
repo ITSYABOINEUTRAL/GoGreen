@@ -5,6 +5,19 @@ const FARMER_EMAIL = `farmer_auth_${ts}@test.invalid`;
 const FARMER_PASS = 'TestPass1!';
 
 test.describe('Auth', () => {
+  // Register the farmer once so login/logout tests do not depend on test order.
+  test.beforeAll(async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.goto('/register');
+    await page.fill('#reg-name', `Farmer ${ts}`);
+    await page.fill('#reg-email', FARMER_EMAIL);
+    await page.fill('#reg-password', FARMER_PASS);
+    await page.selectOption('#reg-role', 'farmer');
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/\/dashboard/);
+    await page.close();
+  });
+
   test('register as buyer redirects to marketplace', async ({ page }) => {
     await page.goto('/register');
     await page.fill('#reg-name', `Buyer ${ts}`);
@@ -16,9 +29,11 @@ test.describe('Auth', () => {
   });
 
   test('register as farmer redirects to dashboard', async ({ page }) => {
+    // Farmer already registered in beforeAll; verify a second farmer still works.
+    const email = `farmer_auth_extra_${ts}@test.invalid`;
     await page.goto('/register');
-    await page.fill('#reg-name', `Farmer ${ts}`);
-    await page.fill('#reg-email', FARMER_EMAIL);
+    await page.fill('#reg-name', `Farmer Extra ${ts}`);
+    await page.fill('#reg-email', email);
     await page.fill('#reg-password', FARMER_PASS);
     await page.selectOption('#reg-role', 'farmer');
     await page.click('button[type="submit"]');
@@ -34,7 +49,6 @@ test.describe('Auth', () => {
   });
 
   test('logout redirects to login', async ({ page }) => {
-    // Login first
     await page.goto('/login');
     await page.fill('#login-email', FARMER_EMAIL);
     await page.fill('#login-password', FARMER_PASS);

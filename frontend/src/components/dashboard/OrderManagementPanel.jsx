@@ -263,6 +263,7 @@ export default function OrderManagementPanel({
                   </span>
                   {['paid', 'processing', 'shipped'].includes(o.status) && (
                     <select
+                      aria-label="Update order status"
                       style={{
                         padding: '5px 10px',
                         borderRadius: 6,

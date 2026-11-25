@@ -2,6 +2,44 @@ import React, { useState } from 'react';
 import { api } from '../../api/client';
 
 /**
+ * Build validated bulk price payload from UI state.
+ * Returns { payload } or { error }.
+ */
+export function buildBulkPricePayload(selections, adjustPct) {
+  const updates = Object.entries(selections)
+    .filter(([, v]) => v !== '')
+    .map(([productId, newPrice]) => {
+      const price = parseFloat(newPrice);
+      if (!Number.isFinite(price) || price < 0) {
+        return { error: `Invalid price for product ${productId}.` };
+      }
+      return { product_id: Number(productId), price };
+    });
+
+  const badRow = updates.find((u) => u.error);
+  if (badRow) return { error: badRow.error };
+
+  if (updates.length === 0 && adjustPct === '') {
+    return { error: 'Enter a percentage adjustment or individual prices.' };
+  }
+
+  let adjustmentPercent;
+  if (adjustPct !== '') {
+    adjustmentPercent = parseFloat(adjustPct);
+    if (!Number.isFinite(adjustmentPercent)) {
+      return { error: 'Enter a valid percentage adjustment.' };
+    }
+  }
+
+  return {
+    payload: {
+      updates: updates.filter((u) => !u.error),
+      adjustment_percent: adjustmentPercent,
+    },
+  };
+}
+
+/**
  * BulkPricePanel — lets farmers apply a percentage or per-product price update
  * across all their listings in one action.
  * Extracted from Dashboard.jsx (#1060).
@@ -44,23 +82,20 @@ export default function BulkPricePanel({ products = [], onUpdated }) {
 
   async function handleBulkPriceUpdate() {
     setBulkPriceMsg(null);
-    const updates = Object.entries(bulkPriceSelections)
-      .filter(([, v]) => v !== '')
-      .map(([productId, newPrice]) => ({ product_id: Number(productId), price: parseFloat(newPrice) }));
-
-    if (updates.length === 0 && bulkAdjustPct === '') {
-      setBulkPriceMsg({ type: 'err', text: 'Enter a percentage adjustment or individual prices.' });
+    const built = buildBulkPricePayload(bulkPriceSelections, bulkAdjustPct);
+    if (built.error) {
+      setBulkPriceMsg({ type: 'err', text: built.error });
       return;
     }
 
-    const adjustmentPercent = bulkAdjustPct !== '' ? parseFloat(bulkAdjustPct) : undefined;
-    const payload = { updates, adjustment_percent: adjustmentPercent };
+    const { updates, adjustment_percent: adjustmentPercent } = built.payload;
 
     try {
-      const res = await api.bulkUpdatePrices(payload.updates, payload.adjustment_percent);
+      const res = await api.bulkUpdatePrices(updates, adjustmentPercent);
+      const updatedCount = res?.data?.updated ?? res?.updated ?? updates.length;
       setBulkPriceMsg({
         type: 'ok',
-        text: `Updated ${res.data?.updated ?? updates.length} product(s).`,
+        text: `Updated ${updatedCount} product(s).`,
       });
       setBulkPriceSelections({});
       setBulkAdjustPct('');

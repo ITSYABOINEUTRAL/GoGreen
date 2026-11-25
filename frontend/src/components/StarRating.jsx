@@ -1,44 +1,72 @@
 import React from 'react';
 
-/**
- * Displays a star rating (read-only or interactive).
- * Props:
- *   value      - current rating (0–5, supports decimals for display)
- *   max        - max stars (default 5)
- *   size       - font size (default 16)
- *   onChange   - if provided, renders interactive stars
- *   count      - optional review count to show alongside
- */
-export default function StarRating({ value = 0, max = 5, size = 16, onChange, count }) {
+const StarRating = ({ value = 0, max = 5, size = 24, onChange, count }) => {
+  const interactive = typeof onChange === 'function';
   const stars = Array.from({ length: max }, (_, i) => i + 1);
+  const current = Math.round(value);
+
+  const handleKeyDown = (event, star) => {
+    if (!interactive) return;
+    let next = null;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        next = Math.min(max, star + 1);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        next = Math.max(1, star - 1);
+        break;
+      case 'Home':
+        next = 1;
+        break;
+      case 'End':
+        next = max;
+        break;
+      case 'Enter':
+      case ' ':
+        next = star;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    onChange(next);
+  };
+
+  const wrapperProps = interactive
+    ? { role: 'radiogroup', 'aria-label': 'Star rating' }
+    : { role: 'img', 'aria-label': `Rated ${value} out of ${max}` };
 
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-      {stars.map(star => {
-        const filled = value >= star;
-        const half   = !filled && value >= star - 0.5;
+    <div className="star-rating" {...wrapperProps}>
+      {stars.map((star) => {
+        const filled = star <= current;
+        const starProps = interactive
+          ? {
+              role: 'radio',
+              'aria-checked': star === current,
+              'aria-label': `${star} star${star === 1 ? '' : 's'}`,
+              tabIndex: star === current ? 0 : -1,
+              onClick: () => onChange(star),
+              onKeyDown: (event) => handleKeyDown(event, star),
+            }
+          : { 'aria-hidden': true };
+
         return (
           <span
             key={star}
-            onClick={onChange ? () => onChange(star) : undefined}
-            style={{
-              fontSize: size,
-              cursor: onChange ? 'pointer' : 'default',
-              color: filled || half ? '#f5a623' : '#ddd',
-              lineHeight: 1,
-              userSelect: 'none',
-            }}
+            className={`star ${filled ? 'star-filled' : 'star-empty'}`}
+            style={{ fontSize: size, cursor: interactive ? 'pointer' : 'default' }}
+            {...starProps}
           >
-            {half ? '½' : '★'}
+            {filled ? '\u2605' : '\u2606'}
           </span>
         );
       })}
-      {count !== undefined && (
-        <span style={{ fontSize: size * 0.8, color: '#888', marginLeft: 4 }}>
-          {value > 0 ? `${Number(value).toFixed(1)}` : ''}
-          {count > 0 ? ` (${count})` : ' No reviews'}
-        </span>
-      )}
-    </span>
+      {typeof count === 'number' && <span className="star-count">({count})</span>}
+    </div>
   );
-}
+};
+
+export default StarRating;

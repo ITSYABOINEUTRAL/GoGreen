@@ -73,6 +73,30 @@ describe('POST /api/products/bulk', () => {
     expect(res.body.message).toContain('quantity');
   });
 
+  it('returns 400 with duplicate_columns when a header appears twice', async () => {
+    const csv = 'name,price,price,quantity\nTomatoes,2.5,2.5,100\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('duplicate_columns');
+    expect(res.body.message).toContain('price');
+  });
+
+  it('returns 400 with unknown_columns when CSV contains a header not in the allowed set', async () => {
+    const csv = 'name,price,quantity,secret_field\nTomatoes,2.5,100,hidden\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('unknown_columns');
+    expect(res.body.message).toContain('secret_field');
+  });
+
+  it('accepts the template headers (happy path)', async () => {
+    const csv = 'name,description,price,quantity,unit,category\nTomatoes,Fresh,2.5,100,kg,vegetables\n';
+    const res = await csvUpload(csv);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.created).toBe(1);
+  });
+
   it('skips invalid rows and reports them, still creates valid ones', async () => {
     const csv = [
       'name,price,quantity',

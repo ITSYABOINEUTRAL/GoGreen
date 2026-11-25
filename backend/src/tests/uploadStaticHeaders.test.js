@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
 const app = require('../app');
+const { sanitizeFilename } = require('../utils/sanitizeFilename');
 
 describe('Upload static-file hardening in backend/src/app.js', () => {
   const uploadsDir = path.join(__dirname, '../../uploads');
@@ -17,20 +18,14 @@ describe('Upload static-file hardening in backend/src/app.js', () => {
   // File with hostile characters on disk (<, >, quotes) to test filename sanitisation
   const hostileFilename = 'test<hostile>"quote".png';
   const hostileFilePath = path.join(uploadsDir, hostileFilename);
-  let hostileFileCreated = false;
 
   beforeAll(() => {
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
     fs.writeFileSync(tempFilePath, 'dummy image content for static header test');
-
-    try {
-      fs.writeFileSync(hostileFilePath, 'hostile file content');
-      hostileFileCreated = true;
-    } catch (_err) {
-      hostileFileCreated = false;
-    }
+    // Fails the suite if the fixture cannot be created, instead of skipping the test.
+    fs.writeFileSync(hostileFilePath, 'hostile file content');
   });
 
   afterAll(() => {
@@ -43,7 +38,7 @@ describe('Upload static-file hardening in backend/src/app.js', () => {
     }
 
     try {
-      if (hostileFileCreated && fs.existsSync(hostileFilePath)) {
+      if (fs.existsSync(hostileFilePath)) {
         fs.unlinkSync(hostileFilePath);
       }
     } catch (_err) {
@@ -78,23 +73,18 @@ describe('Upload static-file hardening in backend/src/app.js', () => {
   });
 
   it('asserts Content-Disposition filename contains only safe characters even when on-disk name has hostile characters', async () => {
-    if (hostileFileCreated) {
-      const res = await request(app).get(`/uploads/${encodeURIComponent(hostileFilename)}`);
-      expect(res.status).toBe(200);
-      expect(res.headers['content-disposition']).toBeDefined();
+    const res = await request(app).get(`/uploads/${encodeURIComponent(hostileFilename)}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toBeDefined();
 
-      const match = res.headers['content-disposition'].match(/filename="([^"]+)"/);
-      expect(match).not.toBeNull();
-      const filename = match[1];
-      expect(filename).not.toMatch(/[^a-zA-Z0-9._-]/);
-      expect(filename).toBe('test_hostile__quote_.png');
-    }
+    const match = res.headers['content-disposition'].match(/filename="([^"]+)"/);
+    expect(match).not.toBeNull();
+    const filename = match[1];
+    expect(filename).not.toMatch(/[^a-zA-Z0-9._-]/);
+    expect(filename).toBe('test_hostile__quote_.png');
   });
 
   it('asserts the filename sanitiser strips dangerous characters like <, >, quotes, or spaces', () => {
-    const sanitizeFilename = (filePath) =>
-      path.basename(filePath).replace(/[^a-zA-Z0-9._-]/g, '_');
-
     const hostileInputs = [
       'test<script>alert(1)</script>.png',
       'malicious"quote"name.jpg',

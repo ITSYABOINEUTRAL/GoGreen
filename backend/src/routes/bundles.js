@@ -114,7 +114,8 @@ router.post('/purchase', auth, async (req, res) => {
     return err(res, 403, 'Only buyers can purchase bundles', 'forbidden');
 
   const { bundle_id } = req.body;
-  if (!bundle_id) return err(res, 400, 'bundle_id is required', 'validation_error');
+  if (!Number.isInteger(bundle_id) || bundle_id < 1)
+    return err(res, 400, 'bundle_id must be a positive integer', 'validation_error');
 
   const bundle = (
     await db.query(

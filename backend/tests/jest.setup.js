@@ -24,6 +24,7 @@ jest.mock('../src/db/schema', () => ({
   exec: jest.fn(),
   transaction: jest.fn(),
   query: jest.fn(),
+  withTransaction: jest.fn(),
   isPostgres: false,
   statementMocks: {
     get: jest.fn(),
@@ -257,6 +258,14 @@ beforeEach(() => {
       (...args) =>
         fn(...args)
   );
+  if (!mockDb.withTransaction || typeof mockDb.withTransaction.mockReset !== 'function') {
+    mockDb.withTransaction = jest.fn();
+  }
+  mockDb.withTransaction.mockReset();
+  mockDb.withTransaction.mockImplementation(async (fn) => {
+    const txQuery = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    return fn({ query: txQuery });
+  });
 
   const idempotency = jest.requireMock('../src/utils/idempotency');
   idempotency.getCachedResponse.mockResolvedValue(null);
