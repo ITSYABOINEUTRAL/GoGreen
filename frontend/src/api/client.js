@@ -69,6 +69,13 @@ export function clearAccessToken() {
   accessToken = null;
 }
 
+// test-only: call in beforeEach to reset all module-level state between tests
+export function __resetForTests() {
+  accessToken = null;
+  refreshPromise = null;
+  sessionExpired = false;
+}
+
 export function setLoadingCallback(fn) {
   loadingCallback = typeof fn === 'function' ? fn : null;
 }
@@ -207,6 +214,17 @@ function endSession() {
 // so tests can exercise its timeout/abort behavior directly without
 // needing a specific endpoint wrapper that happens to forward
 // { timeoutMs, signal } through.
+
+export async function request(path, options = {}, retry = true, csrfRetry = true) {
+  const method = (options.method || 'GET').toUpperCase();
+  const needsCsrf = MUTATING.includes(method) && !CSRF_EXEMPT.includes(path);
+
+  if (needsCsrf) await ensureCsrfToken();
+  const csrfToken = needsCsrf ? getCsrfToken() : null;
+  const isFormData = options.body instanceof FormData;
+
+  if (loadingCallback && !options.silent) loadingCallback(true);
+  const { signal, cleanup } = withTimeout(options.timeoutMs 
 export async function request(path, options = {}, retry = true, csrfRetry = true) {
   const method = (options.method || 'GET').toUpperCase();
   const needsCsrf = MUTATING.includes(method) && !CSRF_EXEMPT.includes(path);

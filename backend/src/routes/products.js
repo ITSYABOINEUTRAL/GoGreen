@@ -18,15 +18,16 @@ const { stockClients, broadcastStockUpdate } = require('../utils/stockUpdates');
 const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
 
 function parseAllowedRegions(value) {
-  if (value === undefined || value === null) return null;
-  const arr = Array.isArray(value) ? value : [];
-  if (arr.length === 0) return null;
-  return JSON.stringify(arr.map((c) => String(c).toUpperCase().trim()).filter(Boolean));
+  if (value === undefined || value === null) return { regions: null };
+  if (!Array.isArray(value)) return { error: 'allowed_regions must be an array' };
+  if (value.length === 0) return { regions: null };
+  return { regions: JSON.stringify(value.map((c) => String(c).toUpperCase().trim()).filter(Boolean)) };
 }
 
 function parseAndValidateAllergens(value) {
   if (value === undefined || value === null) return { allergens: null };
-  const arr = Array.isArray(value) ? value : [];
+  if (!Array.isArray(value)) return { error: 'allergens must be an array' };
+  const arr = value;
   const invalid = arr.find((a) => !VALID_ALLERGENS.includes(a));
   if (invalid) return { error: `Invalid allergen: "${invalid}". Must be one of: ${VALID_ALLERGENS.join(', ')}` };
   return { allergens: arr.length > 0 ? JSON.stringify(arr) : null };
@@ -282,7 +283,9 @@ router.post('/', auth, requireEmailVerified, validate.product, async (req, res) 
 
   const allergenResult = parseAndValidateAllergens(req.body.allergens);
   if (allergenResult.error) return err(res, 400, allergenResult.error, 'invalid_allergen');
-  const allowedRegions = parseAllowedRegions(req.body.allowed_regions);
+  const regionResult = parseAllowedRegions(req.body.allowed_regions);
+  if (regionResult.error) return err(res, 400, regionResult.error, 'validation_error');
+  const allowedRegions = regionResult.regions;
 
   const columns = [
     'farmer_id', 'name', 'description', 'category', 'price', 'quantity', 'unit', 'weight_kg',
@@ -415,7 +418,9 @@ router.patch('/:id', auth, async (req, res) => {
     updates.allergens = allergenResult.allergens;
   }
   if (updates.allowed_regions !== undefined) {
-    updates.allowed_regions = parseAllowedRegions(updates.allowed_regions);
+    const rResult = parseAllowedRegions(updates.allowed_regions);
+    if (rResult.error) return err(res, 400, rResult.error, 'validation_error');
+    updates.allowed_regions = rResult.regions;
   }
   if (updates.grade !== undefined) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];

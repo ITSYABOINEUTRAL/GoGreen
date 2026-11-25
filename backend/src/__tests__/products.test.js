@@ -121,6 +121,50 @@ describe('POST /api/products', () => {
     const res = await createProduct({ nutrition: { calories: -10 } });
     expect(res.status).toBe(400);
   });
+
+  // --- parseAllowedRegions / parseAndValidateAllergens validation (#269) ---
+
+  it('returns 200 when allowed_regions is an empty array (treated as null)', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [{ id: 5 }], rowCount: 1 });
+    const res = await createProduct({ allowed_regions: [] });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 200 when allowed_regions is a valid array', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [{ id: 5 }], rowCount: 1 });
+    const res = await createProduct({ allowed_regions: ['us', 'ca'] });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 when allowed_regions is a string instead of an array', async () => {
+    const res = await createProduct({ allowed_regions: 'US' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('returns 400 when allowed_regions is an object instead of an array', async () => {
+    const res = await createProduct({ allowed_regions: { a: 1 } });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('returns 200 when allergens is a valid array', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [{ id: 5 }], rowCount: 1 });
+    const res = await createProduct({ allergens: ['gluten', 'nuts'] });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 when allergens is a string instead of an array', async () => {
+    const res = await createProduct({ allergens: 'nuts' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_allergen');
+  });
+
+  it('returns 400 when allergens contains an invalid allergen', async () => {
+    const res = await createProduct({ allergens: ['bogus'] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_allergen');
+  });
 });
 
 describe('GET /api/products/:id', () => {
