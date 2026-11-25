@@ -132,9 +132,12 @@ if (USE_POSTGRES) {
     }
   };
 
+  const rewritePlaceholders = (sql) => sql.replace(/\$\d+/g, '?');
+  const isReadQuery = (sql) => /^\s*(SELECT|WITH)/i.test(sql);
+
   const querySqlite = (sql, params = []) => {
-    const text = sql.replace(/\$\d+/g, '?');
-    if (/^\s*(SELECT|WITH)/i.test(text)) {
+    const text = rewritePlaceholders(sql);
+    if (isReadQuery(text)) {
       const rows = sqlite.prepare(text).all(...params);
       return { rows: rows.map(normalizeBooleans), rowCount: rows.length };
     }
@@ -195,6 +198,8 @@ if (USE_POSTGRES) {
   const { runMigrations } = require('./migrationRunner');
   db.ready = runMigrations(db);
   db.normalizeBooleans = normalizeBooleans;
+  db.rewritePlaceholders = rewritePlaceholders;
+  db.isReadQuery = isReadQuery;
   db.ready.catch((err) => logger.error('[DB] Migration failed:', { error: err.message }));
   module.exports = db;
 }
