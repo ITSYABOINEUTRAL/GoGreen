@@ -52,14 +52,23 @@ function normalizePreorderInput(body) {
 // GET /api/products - public browse with optional filters
 async function listProducts(req, res) {
   const role = req.user?.role || 'public';
-  const cacheKey = `products:${role}:${JSON.stringify(req.query)}`;
-  const cached = await cache.get(cacheKey);
-  if (cached) return res.json(cached);
+  const { lat, lng, radius, q } = req.query;
+  const isGeoQuery = lat !== undefined || lng !== undefined || radius !== undefined;
+  const isSearchQuery = q !== undefined && q !== '';
+  const shouldCache = !isGeoQuery && !isSearchQuery;
+
+  let cacheKey;
+  if (shouldCache) {
+    const sortedQuery = Object.keys(req.query).sort().reduce((acc, k) => { acc[k] = req.query[k]; return acc; }, {});
+    cacheKey = `products:${role}:${JSON.stringify(sortedQuery)}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) return res.json(cached);
+  }
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade, q } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', grade } = req.query;
 
   const conditions = [];
   const params = [];
@@ -152,7 +161,7 @@ async function listProducts(req, res) {
   if (role !== 'farmer') {
     payload.data = payload.data.map(({ low_stock_threshold, ...rest }) => rest);
   }
-  await cache.set(cacheKey, payload, 60);
+  if (shouldCache) await cache.set(cacheKey, payload, 60);
   res.json(payload);
 }
 
