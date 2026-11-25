@@ -456,6 +456,47 @@ describe('POST /api/auctions/:id/bid', () => {
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('forbidden');
   });
+
+  it('returns 400 when auction ends_at is in the past (ended auction)', async () => {
+    const endedAuction = {
+      ...activeAuction,
+      farmer_id: 1,
+      status: 'active',
+      ends_at: new Date(Date.now() - 60_000).toISOString(),
+      current_bid: null,
+      min_increment: 0,
+      highest_bidder_id: null,
+    };
+    // placeBidSqlite uses db.query for the SELECT
+    mockDb.query.mockResolvedValueOnce({ rows: [endedAuction] });
+    const res = await request(app)
+      .post('/api/auctions/1/bid')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ amount: 15 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('auction_ended');
+  });
+
+  it('accepts bid exactly at current_bid + min_increment', async () => {
+    const auctionRow = {
+      ...activeAuction,
+      farmer_id: 1,
+      current_bid: 20,
+      min_increment: 5,
+      highest_bidder_id: null,
+    };
+    // placeBidSqlite: SELECT, then conditional UPDATE, then INSERT bids
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [auctionRow] })       // SELECT auction
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })    // conditional UPDATE
+      .mockResolvedValueOnce({ rows: [] });                 // INSERT bid
+    const res = await request(app)
+      .post('/api/auctions/1/bid')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ amount: 25 }); // exactly 20 + 5
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
 });
 
 // ─── closeExpiredAuctions (cron job) ─────────────────────────────────────────
@@ -464,11 +505,13 @@ jest.mock('../utils/mailer', () => ({
   sendAuctionWinnerEmail: jest.fn().mockResolvedValue(undefined),
   sendAuctionSaleEmail: jest.fn().mockResolvedValue(undefined),
   sendAuctionNoSaleEmail: jest.fn().mockResolvedValue(undefined),
+  sendOrderEmails: jest.fn().mockResolvedValue(undefined),
+  sendLowStockAlert: jest.fn().mockResolvedValue(undefined),
+  sendStatusUpdateEmail: jest.fn().mockResolvedValue(undefined),
+  sendBackInStockEmail: jest.fn().mockResolvedValue(undefined),
+  sendReturnEmail: jest.fn().mockResolvedValue(undefined),
 }));
-
-jest.mock('../utils/stellar', () => ({
-  sendPayment: jest.fn(),
-}));
+// Rely on the global stellar mock from tests/jest.setup.js (do not override it).
 
 describe('closeExpiredAuctions', () => {
   const { closeExpiredAuctions } = require('../jobs/auctionCron');
