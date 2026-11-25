@@ -31,6 +31,14 @@ const createAuctionSchema = z.object({
     (v) => new Date(v) >= new Date(Date.now() + MIN_MINUTES * 60 * 1000),
     `ends_at must be at least ${MIN_MINUTES} minutes in the future`
   ),
+}).superRefine((data, ctx) => {
+  if (data.reserve_price != null && data.reserve_price < data.start_price) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'reserve_price must not be less than start_price',
+      path: ['reserve_price'],
+    });
+  }
 });
 
 const bidSchema = z.object({

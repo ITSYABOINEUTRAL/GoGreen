@@ -226,6 +226,54 @@ describe('POST /api/auctions', () => {
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('conflict');
   });
+
+  // ── reserve_price vs start_price (issue #264) ──────────────────────────────
+
+  it('returns 400 validation_error when reserve_price < start_price', async () => {
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, start_price: 50, reserve_price: 30 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('accepts reserve_price equal to start_price', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ id: 10 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 8 }], rowCount: 1 });
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, start_price: 50, reserve_price: 50 });
+    expect(res.status).toBe(201);
+  });
+
+  it('accepts ends_at exactly at the minimum duration boundary', async () => {
+    const minMs = (parseInt(process.env.MIN_AUCTION_DURATION_MINUTES ?? '5', 10)) * 60 * 1000;
+    const exactEndsAt = new Date(Date.now() + minMs + 2000).toISOString();
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ id: 10 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 9 }], rowCount: 1 });
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, ends_at: exactEndsAt });
+    expect(res.status).toBe(201);
+  });
+
+  it('returns 400 when ends_at is one minute short of the minimum duration', async () => {
+    const minMs = (parseInt(process.env.MIN_AUCTION_DURATION_MINUTES ?? '5', 10)) * 60 * 1000;
+    const shortEndsAt = new Date(Date.now() + minMs - 60_000).toISOString();
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, ends_at: shortEndsAt });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
 });
 
 describe('GET /api/auctions', () => {

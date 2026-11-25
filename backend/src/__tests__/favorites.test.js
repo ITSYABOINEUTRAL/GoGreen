@@ -195,3 +195,109 @@ describe('GET /api/favorites/check/:product_id', () => {
     expect(res.body.isFavorited).toBe(false);
   });
 });
+
+// ── Role-guard: non-buyers get 403 on all four handlers ──────────────────────
+
+describe('Non-buyer role guard (403)', () => {
+  let farmerApp;
+
+  beforeAll(() => {
+    jest.resetModules();
+    jest.doMock('../db/schema', () => ({ query: jest.fn() }));
+    jest.doMock('../middleware/auth', () => (req, res, next) => {
+      req.user = { id: 999, role: 'farmer' };
+      next();
+    });
+    const farmerRouter = require('../routes/favorites');
+    farmerApp = express();
+    farmerApp.use(express.json());
+    farmerApp.use('/api/favorites', farmerRouter);
+  });
+
+  afterAll(() => {
+    jest.resetModules();
+  });
+
+  test('POST / returns 403 for non-buyer', async () => {
+    const res = await request(farmerApp).post('/api/favorites').send({ product_id: 1 });
+    expect(res.status).toBe(403);
+  });
+
+  test('DELETE /:product_id returns 403 for non-buyer', async () => {
+    const res = await request(farmerApp).delete('/api/favorites/1');
+    expect(res.status).toBe(403);
+  });
+
+  test('GET / returns 403 for non-buyer', async () => {
+    const res = await request(farmerApp).get('/api/favorites');
+    expect(res.status).toBe(403);
+  });
+
+  test('GET /check/:product_id returns 403 for non-buyer', async () => {
+    const res = await request(farmerApp).get('/api/favorites/check/1');
+    expect(res.status).toBe(403);
+  });
+});
+
+// ── Pagination clamping ───────────────────────────────────────────────────────
+
+describe('GET /api/favorites — pagination clamping', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('clamps limit=500 to 100', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app).get('/api/favorites?limit=500&page=1');
+
+    // The second query must receive 100 as the limit, not 500
+    expect(db.query).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      expect.arrayContaining([100])
+    );
+  });
+
+  test('clamps page=0 to 1 (offset stays 0)', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app).get('/api/favorites?page=0&limit=20');
+
+    const secondCallArgs = db.query.mock.calls[1][1];
+    expect(secondCallArgs[2]).toBe(0);  // offset = (1-1)*20 = 0
+    expect(secondCallArgs[1]).toBe(20); // limit stays 20
+  });
+});
+
+// ── POST duplicate detection via SQLite UNIQUE message ───────────────────────
+
+describe('POST /api/favorites — duplicate detection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('returns 409 when SQLite UNIQUE message fires', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+      .mockRejectedValueOnce({ message: 'UNIQUE constraint failed: favorites.buyer_id, favorites.product_id' });
+
+    const res = await request(app).post('/api/favorites').send({ product_id: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('already_favorited');
+  });
+
+  test('returns 409 when Postgres error code 23505 fires', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+      .mockRejectedValueOnce({ code: '23505', message: 'duplicate key value violates unique constraint' });
+
+    const res = await request(app).post('/api/favorites').send({ product_id: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('already_favorited');
+  });
+});

@@ -18,7 +18,12 @@ router.post('/', auth, validate.dispute, async (req, res, next) => {
       return res.status(403).json({ error: 'Only buyers can file disputes' });
 
     const order_id = parseInt(req.body.order_id, 10);
+    if (!Number.isInteger(order_id) || order_id <= 0)
+      return res.status(400).json({ error: 'order_id must be a positive integer' });
+
     const { reason } = req.body;
+    if (typeof reason !== 'string' || !reason.trim())
+      return res.status(400).json({ error: 'reason is required' });
 
     const { rows: orderRows } = await db.query(
       `SELECT o.*, u.stellar_public_key as farmer_wallet, u.id as farmer_id, u.email as farmer_email, u.name as farmer_name
@@ -32,8 +37,8 @@ router.post('/', auth, validate.dispute, async (req, res, next) => {
     if (order.status !== 'paid')
       return res.status(400).json({ error: 'Disputes can only be filed on paid orders' });
 
-    // Time window check
-    const paidAt = new Date(order.updated_at || order.created_at);
+    // Time window check — use created_at as the payment/order timestamp
+    const paidAt = new Date(order.paid_at || order.created_at);
     const windowMs = DISPUTE_WINDOW_HOURS * 60 * 60 * 1000;
     if (Date.now() - paidAt.getTime() > windowMs)
       return res.status(400).json({ error: `Disputes must be filed within ${DISPUTE_WINDOW_HOURS} hours of delivery` });
