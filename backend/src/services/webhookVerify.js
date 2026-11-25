@@ -18,7 +18,7 @@ function verifyWebhookSignature(secret, rawBody, signatureHeader) {
 /**
  * Express middleware factory.
  * Looks up the farmer's webhook_secret by farmer id (passed as req.params.farmerId or
- * via getSecret callback), then verifies signature and timestamp.
+ * via getSecret callback), then verifies signature and a required timestamp header.
  *
  * Usage:
  *   router.post('/webhook', webhookMiddleware(async (req) => secret), handler)
@@ -32,12 +32,13 @@ function webhookMiddleware(getSecret) {
       return res.status(401).json({ error: 'Missing signature', code: 'invalid_signature' });
     }
 
-    // Replay prevention: reject requests older than 5 minutes
-    if (timestamp) {
-      const ts = Number(timestamp);
-      if (isNaN(ts) || Math.abs(Date.now() - ts) > REPLAY_WINDOW_MS) {
-        return res.status(400).json({ error: 'Request timestamp too old or invalid', code: 'replay_detected' });
-      }
+    // Replay prevention: reject missing, invalid, or stale timestamps
+    if (!timestamp) {
+      return res.status(400).json({ error: 'Missing webhook timestamp', code: 'replay_detected' });
+    }
+    const ts = Number(timestamp);
+    if (isNaN(ts) || Math.abs(Date.now() - ts) > REPLAY_WINDOW_MS) {
+      return res.status(400).json({ error: 'Request timestamp too old or invalid', code: 'replay_detected' });
     }
 
     let secret;

@@ -11,7 +11,7 @@ console.log('   ✅ Authentication: Required (buyers only)');
 console.log('   ✅ Functionality: Check waitlist status for specific product');
 console.log('   ✅ Returns: position, totalWaiting, onWaitlist status');
 console.log('   ✅ Error handling: Product not found, invalid input, etc.');
-console.log('   ✅ File: backend/src/routes/products_clean.js (clean implementation)');
+console.log('   ✅ File: backend/src/routes/products.js (clean implementation)');
 console.log();
 
 console.log('📋 Task 6.4: GET /api/waitlist/mine');
@@ -79,7 +79,7 @@ console.log();
 
 console.log('📁 Files Created/Modified:');
 console.log('   ✅ backend/src/routes/waitlist.js (new file)');
-console.log('   ✅ backend/src/routes/products_clean.js (clean implementation)');
+console.log('   ✅ backend/src/routes/products.js (clean implementation)');
 console.log('   ✅ backend/src/routes/index.js (modified to include waitlist routes)');
 console.log();
 

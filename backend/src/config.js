@@ -1,9 +1,29 @@
 require('dotenv').config();
 const { z, ZodError } = require('zod');
 
+/**
+ * numeric(defaultValue) — a Zod schema factory for numeric env vars.
+ *
+ * Treats '' and undefined as the default value instead of coercing '' to 0.
+ * Rejects values that do not match a numeric pattern with a clear error.
+ */
+function numeric(defaultValue) {
+  return z
+    .preprocess((raw) => {
+      if (raw === undefined || raw === '') return defaultValue;
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'string' && /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(raw.trim())) {
+        return Number(raw.trim());
+      }
+      // Return the raw value so Zod's own type check will produce a clear error
+      return raw;
+    }, z.number())
+    .default(defaultValue);
+}
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(4000),
+  PORT: numeric(4000).pipe(z.number().int().positive()),
 
   // Auth — required
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required').superRefine((secret, ctx) => {
@@ -23,8 +43,8 @@ const EnvSchema = z.object({
 
   // Database / cache
   DATABASE_URL: z.string().optional(),
-  DB_QUERY_TIMEOUT_SQLITE: z.coerce.number().int().positive().default(5000),
-  DB_QUERY_TIMEOUT_POSTGRES: z.coerce.number().int().positive().default(10000),
+  DB_QUERY_TIMEOUT_SQLITE: numeric(5000).pipe(z.number().int().positive()),
+  DB_QUERY_TIMEOUT_POSTGRES: numeric(10000).pipe(z.number().int().positive()),
   REDIS_URL: z.string().optional(),
 
   // Origins / CORS
@@ -43,15 +63,15 @@ const EnvSchema = z.object({
 
   // SMTP
   SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_PORT: numeric(587).pipe(z.number().int().positive()),
   SMTP_SECURE: z.string().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
 
   // Rate limiting
-  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
-  RATE_LIMIT_GENERAL_MAX: z.coerce.number().int().positive().default(100),
+  RATE_LIMIT_AUTH_MAX: numeric(10).pipe(z.number().int().positive()),
+  RATE_LIMIT_GENERAL_MAX: numeric(100).pipe(z.number().int().positive()),
 
   // Platform fee
   PLATFORM_FEE_PERCENT: z.coerce.number().nonnegative().optional(),
@@ -60,14 +80,14 @@ const EnvSchema = z.object({
   FEE_BUMP_THRESHOLD_XLM: z.coerce.number().positive().optional(),
 
   // Orders
-  MAX_ORDER_QUANTITY: z.coerce.number().int().positive().default(10000),
+  MAX_ORDER_QUANTITY: numeric(10000).pipe(z.number().int().positive()),
 
   // Soroban
   SOROBAN_RPC_URL: z.string().optional(),
   SOROBAN_ESCROW_CONTRACT_ID: z.string().optional(),
   SOROBAN_XLM_TOKEN_CONTRACT_ID: z.string().optional(),
   SOROBAN_SIMULATION_SOURCE_PUBLIC_KEY: z.string().optional(),
-  SOROBAN_ESCROW_TIMEOUT_DAYS: z.coerce.number().int().positive().default(14),
+  SOROBAN_ESCROW_TIMEOUT_DAYS: numeric(14).pipe(z.number().int().positive()),
   SOROBAN_CREATOR_EARNINGS_CONTRACT_ID: z.string().optional(),
 
   // Reward token contract
@@ -90,10 +110,10 @@ const EnvSchema = z.object({
   TRUST_PROXY: z.string().optional(),
 
   // Geo API
-  GEO_API_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+  GEO_API_TIMEOUT_MS: numeric(2000).pipe(z.number().int().positive()),
 
   // Freshness alerts
-  FRESHNESS_ALERT_DAYS: z.coerce.number().int().positive().default(3),
+  FRESHNESS_ALERT_DAYS: numeric(3).pipe(z.number().int().positive()),
 });
 
 let env;

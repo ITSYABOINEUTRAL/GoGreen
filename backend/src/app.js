@@ -28,6 +28,7 @@ const { csrfProtect, csrfTokenHandler } = require('./middleware/csrf');
 const { errorHandler } = require('./middleware/error');
 const { notFoundHandler } = require('./middleware/error');
 const { sanitizeResponse } = require('./middleware/sanitize');
+const { sanitizeFilename } = require('./utils/sanitizeFilename');
 const requestLogger = require('./middleware/requestLogger');
 const categoriesRouter = require('./routes/categories');
 const db = require('./db/schema');
@@ -109,8 +110,7 @@ const uploadStaticOptions = {
       'Content-Security-Policy',
       "default-src 'none'; img-src 'self'; media-src 'self'"
     );
-    const safeName = path.basename(filePath).replace(/[^a-zA-Z0-9._-]/g, '_');
-    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${sanitizeFilename(filePath)}"`);
   },
 };
 app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadStaticOptions));

@@ -32,11 +32,23 @@ test('expectNoA11yViolations rejects for a container with a known violation', as
   await expect(expectNoA11yViolations(container)).rejects.toThrow();
 });
 
-test('the exported axe instance has the color-contrast rule disabled', () => {
-  const colorContrast = axe.configure().rules.find(
-    (rule) => rule.id === 'color-contrast'
-  );
+// Reads the configured rules defensively, so an unexpected axe.configure() shape
+// fails with a clear message instead of a TypeError.
+function findConfiguredRule(id) {
+  const config = axe.configure();
+  const rules = Array.isArray(config?.rules) ? config.rules : [];
+  return rules.find((rule) => rule.id === id);
+}
 
-  expect(colorContrast).toBeDefined();
+test('the exported axe instance has the color-contrast rule disabled', () => {
+  const colorContrast = findConfiguredRule('color-contrast');
+
+  expect(colorContrast, 'axe.configure() should list color-contrast in rules').toBeDefined();
   expect(colorContrast.enabled).toBe(false);
+});
+
+test('expectNoA11yViolations rejection names the violated rule', async () => {
+  const { container } = render(<input type="text" />);
+
+  await expect(expectNoA11yViolations(container)).rejects.toThrow(/label/);
 });

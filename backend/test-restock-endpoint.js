@@ -115,7 +115,11 @@ describe('Enhanced Restock Endpoint', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(response.body.message).toBe('Restocked successfully');
-    // Should still succeed even if waitlist processing fails
+    expect(response.body.waitlist).toEqual({
+      success: false,
+      error: 'Database connection failed',
+      code: 'INTERNAL_ERROR',
+    });
   });
 });
 

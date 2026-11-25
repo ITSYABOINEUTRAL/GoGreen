@@ -1,82 +1,112 @@
+/**
+ * Tests for the HTTPS enforcement and HSTS middleware.
+ */
+
 const { enforceHttps, hsts } = require('../src/middleware/https');
 
-function mockReqRes(proto, host = 'example.com', url = '/api/v1/health') {
-  const req = {
-    headers: { 'x-forwarded-proto': proto, host },
-    protocol: proto,
-    originalUrl: url,
+function makeReq(overrides = {}) {
+  return {
+    headers: { host: 'example.com' },
+    protocol: 'http',
+    originalUrl: '/some/path?x=1',
+    ...overrides,
   };
-  const res = {
-    redirected: null,
-    headers: {},
-    redirect(code, location) {
-      this.redirected = { code, location };
-    },
-    setHeader(name, value) {
-      this.headers[name] = value;
-    },
-  };
-  const next = jest.fn();
-  return { req, res, next };
 }
 
-describe('enforceHttps middleware', () => {
-  const OLD_ENV = process.env.NODE_ENV;
+function makeRes() {
+  return {
+    redirect: jest.fn(),
+    setHeader: jest.fn(),
+  };
+}
+
+describe('https middleware', () => {
+  const originalEnv = process.env.NODE_ENV;
 
   afterEach(() => {
-    process.env.NODE_ENV = OLD_ENV;
+    if (originalEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalEnv;
+    }
   });
 
-  it('skips redirect in development', () => {
-    process.env.NODE_ENV = 'development';
-    const { req, res, next } = mockReqRes('http');
-    enforceHttps(req, res, next);
-    expect(next).toHaveBeenCalled();
-    expect(res.redirected).toBeNull();
-  });
+  describe('enforceHttps', () => {
+    it('short-circuits in non-production (calls next, no redirect)', () => {
+      process.env.NODE_ENV = 'test';
+      const req = makeReq({ headers: { host: 'example.com', 'x-forwarded-proto': 'http' } });
+      const res = makeRes();
+      const next = jest.fn();
 
-  it('redirects HTTP to HTTPS in production', () => {
-    process.env.NODE_ENV = 'production';
-    const { req, res, next } = mockReqRes('http');
-    enforceHttps(req, res, next);
-    expect(res.redirected).toEqual({
-      code: 301,
-      location: 'https://example.com/api/v1/health',
+      enforceHttps(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.redirect).not.toHaveBeenCalled();
     });
-    expect(next).not.toHaveBeenCalled();
+
+    it('redirects to https when x-forwarded-proto is http', () => {
+      process.env.NODE_ENV = 'production';
+      const req = makeReq({ headers: { host: 'example.com', 'x-forwarded-proto': 'http' } });
+      const res = makeRes();
+      const next = jest.fn();
+
+      enforceHttps(req, res, next);
+
+      expect(res.redirect).toHaveBeenCalledWith(301, 'https://example.com/some/path?x=1');
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('redirects to https when req.protocol is http and no header is present', () => {
+      process.env.NODE_ENV = 'production';
+      const req = makeReq({ protocol: 'http' });
+      const res = makeRes();
+      const next = jest.fn();
+
+      enforceHttps(req, res, next);
+
+      expect(res.redirect).toHaveBeenCalledWith(301, 'https://example.com/some/path?x=1');
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('passes through when x-forwarded-proto is https', () => {
+      process.env.NODE_ENV = 'production';
+      const req = makeReq({ headers: { host: 'example.com', 'x-forwarded-proto': 'https' } });
+      const res = makeRes();
+      const next = jest.fn();
+
+      enforceHttps(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
   });
 
-  it('calls next for HTTPS requests in production', () => {
-    process.env.NODE_ENV = 'production';
-    const { req, res, next } = mockReqRes('https');
-    enforceHttps(req, res, next);
-    expect(next).toHaveBeenCalled();
-    expect(res.redirected).toBeNull();
-  });
-});
+  describe('hsts', () => {
+    it('sets the exact HSTS header in production', () => {
+      process.env.NODE_ENV = 'production';
+      const req = makeReq();
+      const res = makeRes();
+      const next = jest.fn();
 
-describe('hsts middleware', () => {
-  const OLD_ENV = process.env.NODE_ENV;
+      hsts(req, res, next);
 
-  afterEach(() => {
-    process.env.NODE_ENV = OLD_ENV;
-  });
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Strict-Transport-Security',
+        'max-age=31536000; includeSubDomains; preload'
+      );
+      expect(next).toHaveBeenCalledTimes(1);
+    });
 
-  it('does not set HSTS header outside production', () => {
-    process.env.NODE_ENV = 'development';
-    const { req, res, next } = mockReqRes('https');
-    hsts(req, res, next);
-    expect(res.headers['Strict-Transport-Security']).toBeUndefined();
-    expect(next).toHaveBeenCalled();
-  });
+    it('does not set the header in non-production', () => {
+      process.env.NODE_ENV = 'test';
+      const req = makeReq();
+      const res = makeRes();
+      const next = jest.fn();
 
-  it('sets HSTS header in production', () => {
-    process.env.NODE_ENV = 'production';
-    const { req, res, next } = mockReqRes('https');
-    hsts(req, res, next);
-    expect(res.headers['Strict-Transport-Security']).toMatch(/max-age=31536000/);
-    expect(res.headers['Strict-Transport-Security']).toMatch(/includeSubDomains/);
-    expect(res.headers['Strict-Transport-Security']).toMatch(/preload/);
-    expect(next).toHaveBeenCalled();
+      hsts(req, res, next);
+
+      expect(res.setHeader).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledTimes(1);
+    });
   });
 });

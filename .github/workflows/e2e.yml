@@ -87,7 +87,16 @@ jobs:
           ADMIN_PASSWORD: TestPass1!
 
       - name: Run E2E tests
-        run: npx playwright test
+        run: npx playwright test --project=chromium
+        working-directory: e2e
+        env:
+          BASE_URL: http://localhost:3000
+          CI: "true"
+          ADMIN_EMAIL: e2e-admin@test.invalid
+          ADMIN_PASSWORD: TestPass1!
+
+      - name: Run auth spec against production build
+        run: npx playwright test --project=auth-prod auth.spec.ts
         working-directory: e2e
         env:
           BASE_URL: http://localhost:3000

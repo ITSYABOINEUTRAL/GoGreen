@@ -43,6 +43,11 @@ function getAdapter(dialect, dbPathOrInstance) {
     };
   }
 
+  // An unknown dialect (e.g. a typo such as 'postgresql') must not silently open market.db.
+  if (dialect !== 'sqlite') {
+    throw new Error(`Unsupported dialect: ${dialect}`);
+  }
+
   const Database = require('better-sqlite3');
   const db =
     dbPathOrInstance && typeof dbPathOrInstance.prepare === 'function'
@@ -93,13 +98,26 @@ async function getApplied(db) {
   return new Set(rows.map((r) => r.name));
 }
 
+
+function assertUniqueMigrationIdentities(files) {
+  const seen = new Set();
+  for (const f of files) {
+    if (seen.has(f)) {
+      throw new Error(`Duplicate migration identity: ${f}`);
+    }
+    seen.add(f);
+  }
+  return files;
+}
+
 function getPendingFiles(applied, migrationsDir = MIGRATIONS_DIR) {
   if (!fs.existsSync(migrationsDir)) return [];
-  return fs
+  const files = fs
     .readdirSync(migrationsDir)
     .filter((f) => /^\d+_.+\.sql$/.test(f) && !f.endsWith('.undo.sql'))
     .sort()
     .filter((f) => !applied.has(f));
+  return assertUniqueMigrationIdentities(files);
 }
 
 /**
@@ -183,7 +201,7 @@ async function ensureReviewSchema(db) {
   );
 }
 
-module.exports = {
+module.exports = { assertUniqueMigrationIdentities, 
   getAdapter,
   runMigrations,
   ensureMigrationsTable,

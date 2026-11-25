@@ -10,6 +10,12 @@ export const STATUS_STYLE = {
 export const STATUS_ICON = { pending: '⏳', paid: '✅', processing: '⚙️', shipped: '🚚', delivered: '📦', failed: '❌', disputed: '⚠️', cancelled: '🚫', refunded: '↩️' };
 
 export function getTimeline(status) {
+  if (!ALL_STATUSES.includes(status)) {
+    throw new Error(`Unknown order status: "${status}"`);
+  }
   const currentIndex = TIMELINE_STEPS.indexOf(status);
-  return TIMELINE_STEPS.map((step, index) => ({ step, current: index === currentIndex, completed: currentIndex >= 0 && index <= currentIndex }));
+  if (currentIndex === -1) {
+    return TIMELINE_STEPS.map((step) => ({ step, current: false, completed: false, terminal: true }));
+  }
+  return TIMELINE_STEPS.map((step, index) => ({ step, current: index === currentIndex, completed: index <= currentIndex, terminal: false }));
 }

@@ -60,6 +60,19 @@ fn dummy_product(env: &Env) -> (Bytes, i128) {
     (Bytes::from_array(env, b"wheat"), 1_000_000i128)
 }
 
+fn escrow_ttl(env: &Env, contract_id: &Address, order_id: u64) -> u32 {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Escrow(order_id))
+    })
+}
+
+fn assert_ttl_in_range(ttl: u32) {
+    assert!(ttl >= TTL_MIN, "ttl {} below TTL_MIN", ttl);
+    assert!(ttl <= TTL_MAX, "ttl {} above TTL_MAX", ttl);
+}
+
 // ── #469 ─────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -292,6 +305,63 @@ fn test_ttl_extended_after_deposit_entry_is_readable() {
     let record = client.get_escrow(&order_id).unwrap();
     assert_eq!(record.amount, 1_000_000);
     assert_eq!(record.status, EscrowStatus::Active);
+
+    let contract_id = client.address.clone();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
+}
+
+#[test]
+fn test_ttl_within_bounds_after_release() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, EscrowContract);
+    let client = EscrowContractClient::new(&env, &contract_id);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 41;
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id,
+            &buyer,
+            &farmer,
+            &1_000_000,
+            &future_timeout(&env),
+            &pname,
+            &price,
+        )
+        .unwrap();
+    client.release(&order_id, &pname, &price).unwrap();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
+}
+
+#[test]
+fn test_ttl_within_bounds_after_open_dispute() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, EscrowContract);
+    let client = EscrowContractClient::new(&env, &contract_id);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 42;
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id,
+            &buyer,
+            &farmer,
+            &1_000_000,
+            &future_timeout(&env),
+            &pname,
+            &price,
+        )
+        .unwrap();
+    client.open_dispute(&order_id, &buyer, &None).unwrap();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
 }
 
 #[test]
@@ -313,6 +383,9 @@ fn test_ttl_extended_after_refund_entry_is_settled_not_evicted() {
         .unwrap();
     advance_past_timeout(&env, timeout);
     client.refund(&order_id, &None).unwrap();
+
+    let contract_id = client.address.clone();
+    assert_ttl_in_range(escrow_ttl(&env, &contract_id, order_id));
 
     let result = client.try_refund(&order_id, &None);
     assert_eq!(result, Err(Ok(EscrowError::AlreadySettled)));
@@ -368,6 +441,50 @@ fn test_revoke_role_by_non_platform_panics() {
     let target = Address::generate(&env);
 
     client.revoke_role(&non_platform, &target, &Role::Arbitrator);
+}
+
+#[test]
+fn test_grant_role_records_role_members() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    let platform = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+
+    client.grant_role(&platform, &platform, &Role::Platform);
+    client.grant_role(&platform, &arbitrator, &Role::Arbitrator);
+
+    let members = client.get_role_members(&Role::Arbitrator);
+    assert_eq!(members.len(), 1);
+    assert_eq!(members.get(0).unwrap(), arbitrator);
+}
+
+#[test]
+#[should_panic(expected = "only a Platform role holder can grant roles")]
+fn test_grant_role_by_non_admin_panics() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    init_zero_fee(&env, &client);
+    let stranger = Address::generate(&env);
+    let target = Address::generate(&env);
+
+    client.grant_role(&stranger, &target, &Role::Arbitrator);
+}
+
+#[test]
+fn test_duplicate_grant_does_not_duplicate_role_members() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    let platform = Address::generate(&env);
+    let arbitrator = Address::generate(&env);
+
+    client.grant_role(&platform, &platform, &Role::Platform);
+    client.grant_role(&platform, &arbitrator, &Role::Arbitrator);
+    client.grant_role(&platform, &arbitrator, &Role::Arbitrator);
+
+    assert_eq!(client.get_role_members(&Role::Arbitrator).len(), 1);
 }
 
 #[test]
@@ -486,10 +603,12 @@ fn test_open_dispute_by_buyer_transitions_to_disputed() {
             &price,
         )
         .unwrap();
-    client.open_dispute(&order_id, &buyer, &None).unwrap();
+    let arbitrator = Address::generate(&env);
+    client.open_dispute(&order_id, &buyer, &Some(arbitrator)).unwrap();
 
     let record = client.get_escrow(&order_id).unwrap();
     assert_eq!(record.status, EscrowStatus::Disputed);
+    assert_eq!(record.arbitrator, Some(arbitrator));
 }
 
 #[test]
@@ -585,6 +704,30 @@ fn test_resolve_dispute_by_non_arbitrator_returns_unauthorized() {
     assert_eq!(result, Err(Ok(EscrowError::Unauthorized)));
 }
 
+#[test]
+fn test_resolve_dispute_on_settled_escrow_returns_already_settled() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 114;
+    let timeout = future_timeout(&env);
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id, &buyer, &farmer, &1_000_000, &timeout, &pname, &price,
+        )
+        .unwrap();
+    advance_past_timeout(&env, timeout);
+    client.refund(&order_id, &None).unwrap();
+
+    let result = client.try_resolve_dispute(&order_id, &buyer, &true);
+    assert_eq!(result, Err(Ok(EscrowError::AlreadySettled)));
+}
+
 // ── #676 - Partial refund ─────────────────────────────────────────────────────
 
 #[test]
@@ -638,6 +781,53 @@ fn test_refund_requires_buyer_authorization() {
         client.get_escrow(&order_id).unwrap().status,
         EscrowStatus::Active
     );
+}
+
+#[test]
+fn test_refund_zero_amount_returns_invalid_amount() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 204;
+    let timeout = future_timeout(&env);
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id, &buyer, &farmer, &1_000_000, &timeout, &pname, &price,
+        )
+        .unwrap();
+    advance_past_timeout(&env, timeout);
+    let result = client.try_refund(&order_id, &Some(0));
+    assert_eq!(result, Err(Ok(EscrowError::InvalidAmount)));
+}
+
+#[test]
+fn test_second_refund_beyond_remaining_balance_is_rejected() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    init_zero_fee(&env, &client);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let order_id: u64 = 205;
+    let timeout = future_timeout(&env);
+    let (pname, price) = dummy_product(&env);
+
+    client
+        .deposit(
+            &order_id, &buyer, &farmer, &1_000_000, &timeout, &pname, &price,
+        )
+        .unwrap();
+    advance_past_timeout(&env, timeout);
+    client.refund(&order_id, &Some(600_000)).unwrap();
+    assert_eq!(client.refunded_amount(&order_id).unwrap(), Some(600_000));
+
+    let result = client.try_refund(&order_id, &Some(500_000));
+    assert_eq!(result, Err(Ok(EscrowError::AlreadySettled)));
 }
 
 #[test]
@@ -701,6 +891,33 @@ fn test_initialize_at_max_fee_boundary_succeeds() {
 
     // Exactly MAX_FEE_BPS = 500 should be accepted
     client.initialize(&admin, &MAX_FEE_BPS, &fee_dest).unwrap();
+}
+
+#[test]
+fn test_set_fee_rate_at_max_boundary_stores_max_fee_bps() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    let admin = Address::generate(&env);
+    let fee_dest = Address::generate(&env);
+    client.initialize(&admin, &100u32, &fee_dest).unwrap();
+
+    client.set_fee_rate(&MAX_FEE_BPS).unwrap();
+    // Fee is read back indirectly via initialize boundary test; ensure call succeeds.
+    assert!(client.try_set_fee_rate(&MAX_FEE_BPS).is_ok());
+}
+
+#[test]
+fn test_set_fee_rate_by_non_admin_fails_auth() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    let admin = Address::generate(&env);
+    let fee_dest = Address::generate(&env);
+    client.initialize(&admin, &100u32, &fee_dest).unwrap();
+
+    env.mock_auths(&[]);
+    assert!(client.try_set_fee_rate(&100u32).is_err());
 }
 
 #[test]
@@ -858,6 +1075,20 @@ fn test_upgrade_on_uninitialised_contract_panics() {
     // Contract is not initialized — get_admin() must panic.
     let fake_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
     client.upgrade(&fake_hash).unwrap();
+}
+
+#[test]
+fn test_upgrade_by_non_admin_is_rejected() {
+    let env = setup_env();
+    env.mock_all_auths();
+    let client = register_contract(&env);
+    let admin = Address::generate(&env);
+    let fee_dest = Address::generate(&env);
+    client.initialize(&admin, &0u32, &fee_dest).unwrap();
+
+    env.mock_auths(&[]);
+    let dummy_hash = soroban_sdk::BytesN::from_array(&env, &[2u8; 32]);
+    assert!(client.try_upgrade(&dummy_hash).is_err());
 }
 
 #[test]

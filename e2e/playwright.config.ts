@@ -18,14 +18,21 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // Production-build project: catches route-guard regressions that only
+    // appear against `vite build` + `vite preview` (issue #186).
+    {
+      name: 'auth-prod',
+      testMatch: '**/auth.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
   webServer: process.env.CI
     ? undefined
     : {
-        command: 'npm run dev',
+        command: 'npm run build && npm run preview -- --port 3000',
         cwd: '../frontend',
         url: 'http://localhost:3000',
         reuseExistingServer: true,
-        timeout: 60_000,
+        timeout: 120_000,
       },
 });
