@@ -297,6 +297,7 @@ module.exports = {
   _isSandboxRunning,
   get _sandboxStartedByUs() { return _sandboxStartedByUs; },
   _waitForRpc,
+  _withTimeout,
   // helpers
   fundAccount,
   deployContract,
