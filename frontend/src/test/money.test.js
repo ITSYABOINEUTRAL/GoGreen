@@ -131,9 +131,15 @@ describe('money utilities', () => {
       expect(formatXlm('-1.25')).toBe('-1.25');
     });
 
+    it('normalizes negative zero', () => {
+      expect(formatXlm('-0')).toBe('0');
+      expect(formatXlm('-0.0000000')).toBe('0');
+    });
+
     it('formats large numbers with locale separators', () => {
       expect(formatXlm('1000000', 'en-US')).toBe('1,000,000');
       expect(formatXlm('1000000.123', 'en-US')).toBe('1,000,000.123');
+      expect(formatXlm('1000000', 'de-DE')).toBe('1.000.000');
     });
   });
 

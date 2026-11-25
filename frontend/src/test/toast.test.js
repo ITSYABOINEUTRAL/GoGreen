@@ -8,6 +8,16 @@ describe('showToast', () => {
     const close = showToast('Saved');
     expect(() => { close(); close(); }).not.toThrow();
     expect(document.getElementById('toast-notifications')).toBeNull();
+    expect(document.getElementById('toast-animations')).toBeNull();
+  });
+
+  it('reinjects one animation style after the last toast closes', () => {
+    const closeFirst = showToast('First');
+    expect(document.querySelectorAll('#toast-animations')).toHaveLength(1);
+    closeFirst();
+    expect(document.getElementById('toast-animations')).toBeNull();
+
+    showToast('Second');
     expect(document.querySelectorAll('#toast-animations')).toHaveLength(1);
   });
 });

@@ -8,6 +8,6 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.js',
     include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}'],
-    exclude: ['**/node_modules/**', '**/dist/**', 'src/test/e2e/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'src/test/e2e/**/*.e2e.js'],
   },
 });
