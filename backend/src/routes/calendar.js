@@ -9,15 +9,24 @@ const db = require('../db/schema');
 const auth = require('../middleware/auth');
 const { err } = require('../middleware/error');
 
+// Parse a YYYY-MM-DD string into a UTC Date; returns null for invalid input.
+function parseIsoDate(value) {
+  if (typeof value !== 'string' || !value) return null;
+  const d = new Date(value + 'T00:00:00Z');
+  return isNaN(d.getTime()) ? null : d;
+}
+
 // Expand a single calendar entry into date ranges within a given month
 function expandEntry(entry, year, month) {
   const ranges = [];
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const monthEnd = new Date(Date.UTC(year, month, 0)); // last day of month
 
-  const from = new Date(entry.available_from + 'T00:00:00Z');
-  const until = entry.available_until ? new Date(entry.available_until + 'T00:00:00Z') : null;
-  const recEnd = entry.recurrence_end ? new Date(entry.recurrence_end + 'T00:00:00Z') : null;
+  const from = parseIsoDate(entry.available_from);
+  if (!from) return ranges; // unparseable available_from → bail out safely
+
+  const until = entry.available_until ? parseIsoDate(entry.available_until) : null;
+  const recEnd = entry.recurrence_end ? parseIsoDate(entry.recurrence_end) : null;
 
   if (entry.recurrence === 'none') {
     // Simple fixed range — clip to month
@@ -35,21 +44,13 @@ function expandEntry(entry, year, month) {
     if (cur > monthEnd) break;
     if (recEnd && cur > recEnd) break;
 
-    // For monthly recurrence, advance by 1 month
-    if (i > 0 && entry.recurrence === 'monthly') {
-      cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, cur.getUTCDate()));
-    } else if (i > 0 && intervalDays) {
-      cur = new Date(cur.getTime() + intervalDays * 86400000);
-    }
-
     // Duration = original until - from (default 1 day if no until)
     const durationMs = until ? until.getTime() - from.getTime() : 0;
     const occEnd = new Date(cur.getTime() + durationMs);
 
     const actualEnd = recEnd && occEnd > recEnd ? recEnd : occEnd;
-    if (recEnd && cur > recEnd) break;
 
-    // Skip deleted instance
+    // Skip deleted instance — advance before continue so the loop progresses
     if (entry.delete_instance_date) {
       const delDate = entry.delete_instance_date.slice(0, 10);
       if (cur.toISOString().slice(0, 10) === delDate) {
@@ -58,7 +59,6 @@ function expandEntry(entry, year, month) {
         } else if (intervalDays) {
           cur = new Date(cur.getTime() + intervalDays * 86400000);
         }
-        i++;
         continue;
       }
     }
@@ -70,6 +70,7 @@ function expandEntry(entry, year, month) {
       ranges.push({ from: s.toISOString().slice(0, 10), until: e.toISOString().slice(0, 10) });
     }
 
+    // Advance to next occurrence
     if (entry.recurrence === 'monthly') {
       cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, cur.getUTCDate()));
     } else if (intervalDays) {
@@ -180,3 +181,5 @@ router.delete('/:id', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.expandEntry = expandEntry;
+module.exports.mergeRanges = mergeRanges;

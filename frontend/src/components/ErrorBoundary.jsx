@@ -3,7 +3,7 @@ import { captureException } from '../utils/sentry';
 
 const CHUNK_LOAD_ERROR_PATTERN = /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk .* failed|ChunkLoadError/i;
 
-function isChunkLoadError(message) {
+export function isChunkLoadError(message) {
   return CHUNK_LOAD_ERROR_PATTERN.test(message || '');
 }
 
@@ -109,7 +109,7 @@ class ErrorBoundary extends React.Component {
               The app encountered an unexpected error. Try reloading the page to continue.
             </p>
 
-            {process.env.NODE_ENV === 'development' && this.state.errorDetails && (
+            {import.meta.env.DEV && this.state.errorDetails && (
               <details style={styles.details}>
                 <summary style={styles.summary}>Error Details (Development Only)</summary>
                 <pre style={styles.pre}>

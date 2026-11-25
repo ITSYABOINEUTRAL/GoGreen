@@ -18,15 +18,16 @@ const { stockClients, broadcastStockUpdate } = require('../utils/stockUpdates');
 const VALID_ALLERGENS = ['gluten', 'nuts', 'dairy', 'eggs', 'soy', 'shellfish'];
 
 function parseAllowedRegions(value) {
-  if (value === undefined || value === null) return null;
-  const arr = Array.isArray(value) ? value : [];
-  if (arr.length === 0) return null;
-  return JSON.stringify(arr.map((c) => String(c).toUpperCase().trim()).filter(Boolean));
+  if (value === undefined || value === null) return { regions: null };
+  if (!Array.isArray(value)) return { error: 'allowed_regions must be an array' };
+  if (value.length === 0) return { regions: null };
+  return { regions: JSON.stringify(value.map((c) => String(c).toUpperCase().trim()).filter(Boolean)) };
 }
 
 function parseAndValidateAllergens(value) {
   if (value === undefined || value === null) return { allergens: null };
-  const arr = Array.isArray(value) ? value : [];
+  if (!Array.isArray(value)) return { error: 'allergens must be an array' };
+  const arr = value;
   const invalid = arr.find((a) => !VALID_ALLERGENS.includes(a));
   if (invalid) return { error: `Invalid allergen: "${invalid}". Must be one of: ${VALID_ALLERGENS.join(', ')}` };
   return { allergens: arr.length > 0 ? JSON.stringify(arr) : null };
@@ -52,14 +53,23 @@ function normalizePreorderInput(body) {
 // GET /api/products - public browse with optional filters
 async function listProducts(req, res) {
   const role = req.user?.role || 'public';
-  const cacheKey = `products:${role}:${JSON.stringify(req.query)}`;
-  const cached = await cache.get(cacheKey);
-  if (cached) return res.json(cached);
+  const { lat, lng, radius, q } = req.query;
+  const isGeoQuery = lat !== undefined || lng !== undefined || radius !== undefined;
+  const isSearchQuery = q !== undefined && q !== '';
+  const shouldCache = !isGeoQuery && !isSearchQuery;
+
+  let cacheKey;
+  if (shouldCache) {
+    const sortedQuery = Object.keys(req.query).sort().reduce((acc, k) => { acc[k] = req.query[k]; return acc; }, {});
+    cacheKey = `products:${role}:${JSON.stringify(sortedQuery)}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) return res.json(cached);
+  }
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const offset = (page - 1) * limit;
-  const { category, minPrice, maxPrice, seller, available = 'true', lat, lng, radius, grade, q } = req.query;
+  const { category, minPrice, maxPrice, seller, available = 'true', grade } = req.query;
 
   const conditions = [];
   const params = [];
@@ -152,7 +162,7 @@ async function listProducts(req, res) {
   if (role !== 'farmer') {
     payload.data = payload.data.map(({ low_stock_threshold, ...rest }) => rest);
   }
-  await cache.set(cacheKey, payload, 60);
+  if (shouldCache) await cache.set(cacheKey, payload, 60);
   res.json(payload);
 }
 
@@ -273,7 +283,9 @@ router.post('/', auth, requireEmailVerified, validate.product, async (req, res) 
 
   const allergenResult = parseAndValidateAllergens(req.body.allergens);
   if (allergenResult.error) return err(res, 400, allergenResult.error, 'invalid_allergen');
-  const allowedRegions = parseAllowedRegions(req.body.allowed_regions);
+  const regionResult = parseAllowedRegions(req.body.allowed_regions);
+  if (regionResult.error) return err(res, 400, regionResult.error, 'validation_error');
+  const allowedRegions = regionResult.regions;
 
   const columns = [
     'farmer_id', 'name', 'description', 'category', 'price', 'quantity', 'unit', 'weight_kg',
@@ -406,7 +418,9 @@ router.patch('/:id', auth, async (req, res) => {
     updates.allergens = allergenResult.allergens;
   }
   if (updates.allowed_regions !== undefined) {
-    updates.allowed_regions = parseAllowedRegions(updates.allowed_regions);
+    const rResult = parseAllowedRegions(updates.allowed_regions);
+    if (rResult.error) return err(res, 400, rResult.error, 'validation_error');
+    updates.allowed_regions = rResult.regions;
   }
   if (updates.grade !== undefined) {
     const VALID_GRADES = ['A', 'B', 'C', 'Ungraded'];

@@ -40,9 +40,11 @@ export function FavoritesProvider({ children }) {
     const cached = readFromStorage(lsKey(user.id));
     if (cached) setFavorites(cached);
 
+    let cancelled = false;
     setLoading(true);
     api.getFavorites({ limit: 1000 })
       .then(res => {
+        if (cancelled) return;
         const serverIds = new Set((res.data || []).map(p => p.id));
 
         // Merge any guest favorites accumulated while unauthenticated
@@ -59,9 +61,11 @@ export function FavoritesProvider({ children }) {
         writeToStorage(lsKey(user.id), merged);
       })
       .catch(() => {
+        if (cancelled) return;
         if (!cached) setFavorites(new Set());
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [user]);
 
   const toggleFavorite = useCallback(async (productId) => {
@@ -100,9 +104,17 @@ export function FavoritesProvider({ children }) {
         await api.addFavorite(productId);
       }
     } catch (err) {
-      // Revert on error
-      setFavorites(favorites);
-      writeToStorage(lsKey(user.id), favorites);
+      // Revert only the specific product id that failed
+      setFavorites(prev => {
+        const next = new Set(prev);
+        if (isFavorited) {
+          next.add(productId);
+        } else {
+          next.delete(productId);
+        }
+        writeToStorage(lsKey(user.id), next);
+        return next;
+      });
       throw err;
     }
   }, [user, favorites]);

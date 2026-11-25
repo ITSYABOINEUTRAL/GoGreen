@@ -6,10 +6,10 @@ const { err } = require('../middleware/error');
 const { sanitizeText } = require('../utils/sanitize');
 const crypto = require('crypto');
 const { webhookMiddleware } = require('../services/webhookVerify');
+const { rewriteImageUrl } = require('../utils/cdn');
 
 const PUBLIC_FIELDS =
   'u.id, u.name, u.bio, u.location, u.avatar_url, u.created_at, u.latitude, u.longitude, u.farm_address, u.verification_status';
-  'u.id, u.name, u.bio, u.location, u.avatar_url, u.created_at, u.latitude, u.longitude, u.farm_address, u.verified';
 
 // GET /api/farmers/:id
 router.get('/:id', async (req, res) => {
@@ -31,13 +31,11 @@ router.get('/:id', async (req, res) => {
     [req.params.id]
   );
   const { verification_status, ...farmer } = rows[0];
+  const listingsWithImages = listings.map((l) => ({ ...l, image_url: rewriteImageUrl(l.image_url) }));
   res.json({
     success: true,
-    data: { ...farmer, verified: verification_status === 'verified', cooperatives, listings },
+    data: { ...farmer, verified: verification_status === 'verified', cooperatives, listings: listingsWithImages },
   });
-  const { rewriteImageUrl } = require('../utils/cdn');
-  const listingsWithImages = listings.map((l) => ({ ...l, image_url: rewriteImageUrl(l.image_url) }));
-  res.json({ success: true, data: { ...rows[0], listings: listingsWithImages } });
 });
 
 // PATCH /api/farmers/me

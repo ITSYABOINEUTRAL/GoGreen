@@ -226,6 +226,54 @@ describe('POST /api/auctions', () => {
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('conflict');
   });
+
+  // ── reserve_price vs start_price (issue #264) ──────────────────────────────
+
+  it('returns 400 validation_error when reserve_price < start_price', async () => {
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, start_price: 50, reserve_price: 30 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  it('accepts reserve_price equal to start_price', async () => {
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ id: 10 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 8 }], rowCount: 1 });
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, start_price: 50, reserve_price: 50 });
+    expect(res.status).toBe(201);
+  });
+
+  it('accepts ends_at exactly at the minimum duration boundary', async () => {
+    const minMs = (parseInt(process.env.MIN_AUCTION_DURATION_MINUTES ?? '5', 10)) * 60 * 1000;
+    const exactEndsAt = new Date(Date.now() + minMs + 2000).toISOString();
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [{ id: 10 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ id: 9 }], rowCount: 1 });
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, ends_at: exactEndsAt });
+    expect(res.status).toBe(201);
+  });
+
+  it('returns 400 when ends_at is one minute short of the minimum duration', async () => {
+    const minMs = (parseInt(process.env.MIN_AUCTION_DURATION_MINUTES ?? '5', 10)) * 60 * 1000;
+    const shortEndsAt = new Date(Date.now() + minMs - 60_000).toISOString();
+    const res = await request(app)
+      .post('/api/auctions')
+      .set('Authorization', `Bearer ${farmerToken}`)
+      .send({ ...body, ends_at: shortEndsAt });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
 });
 
 describe('GET /api/auctions', () => {
@@ -244,6 +292,23 @@ describe('GET /api/auctions', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(0);
   });
+
+  it('passes a timestamp parameter to db.query for the ends_at filter', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await request(app).get('/api/auctions');
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
+    const params = mockDb.query.mock.calls[0][1];
+    expect(params).toHaveLength(1);
+    expect(new Date(params[0]).getTime()).toBeGreaterThan(0);
+  });
+
+  it('returns 500 with internal_error code when db.query rejects', async () => {
+    mockDb.query.mockRejectedValueOnce(new Error('DB down'));
+    const res = await request(app).get('/api/auctions');
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('internal_error');
+    expect(res.body.message).toMatch(/Failed to list auctions/);
+  });
 });
 
 describe('GET /api/auctions/:id', () => {
@@ -254,11 +319,29 @@ describe('GET /api/auctions/:id', () => {
     expect(res.body.data.id).toBe(1);
   });
 
+  it('returns auction fields including bid_count', async () => {
+    mockDb.query.mockResolvedValueOnce({ rows: [activeAuction], rowCount: 1 });
+    const res = await request(app).get('/api/auctions/1');
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d).toHaveProperty('bid_count');
+    expect(d).toHaveProperty('product_name');
+    expect(d).toHaveProperty('farmer_name');
+    expect(d).toHaveProperty('ends_at');
+  });
+
   it('returns 404 for unknown auction', async () => {
     mockDb.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const res = await request(app).get('/api/auctions/999');
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('not_found');
+  });
+
+  it('returns 500 with internal_error code when db.query rejects', async () => {
+    mockDb.query.mockRejectedValueOnce(new Error('DB down'));
+    const res = await request(app).get('/api/auctions/1');
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('internal_error');
   });
 });
 
@@ -373,6 +456,47 @@ describe('POST /api/auctions/:id/bid', () => {
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('forbidden');
   });
+
+  it('returns 400 when auction ends_at is in the past (ended auction)', async () => {
+    const endedAuction = {
+      ...activeAuction,
+      farmer_id: 1,
+      status: 'active',
+      ends_at: new Date(Date.now() - 60_000).toISOString(),
+      current_bid: null,
+      min_increment: 0,
+      highest_bidder_id: null,
+    };
+    // placeBidSqlite uses db.query for the SELECT
+    mockDb.query.mockResolvedValueOnce({ rows: [endedAuction] });
+    const res = await request(app)
+      .post('/api/auctions/1/bid')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ amount: 15 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('auction_ended');
+  });
+
+  it('accepts bid exactly at current_bid + min_increment', async () => {
+    const auctionRow = {
+      ...activeAuction,
+      farmer_id: 1,
+      current_bid: 20,
+      min_increment: 5,
+      highest_bidder_id: null,
+    };
+    // placeBidSqlite: SELECT, then conditional UPDATE, then INSERT bids
+    mockDb.query
+      .mockResolvedValueOnce({ rows: [auctionRow] })       // SELECT auction
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })    // conditional UPDATE
+      .mockResolvedValueOnce({ rows: [] });                 // INSERT bid
+    const res = await request(app)
+      .post('/api/auctions/1/bid')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ amount: 25 }); // exactly 20 + 5
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
 });
 
 // ─── closeExpiredAuctions (cron job) ─────────────────────────────────────────
@@ -381,11 +505,13 @@ jest.mock('../utils/mailer', () => ({
   sendAuctionWinnerEmail: jest.fn().mockResolvedValue(undefined),
   sendAuctionSaleEmail: jest.fn().mockResolvedValue(undefined),
   sendAuctionNoSaleEmail: jest.fn().mockResolvedValue(undefined),
+  sendOrderEmails: jest.fn().mockResolvedValue(undefined),
+  sendLowStockAlert: jest.fn().mockResolvedValue(undefined),
+  sendStatusUpdateEmail: jest.fn().mockResolvedValue(undefined),
+  sendBackInStockEmail: jest.fn().mockResolvedValue(undefined),
+  sendReturnEmail: jest.fn().mockResolvedValue(undefined),
 }));
-
-jest.mock('../utils/stellar', () => ({
-  sendPayment: jest.fn(),
-}));
+// Rely on the global stellar mock from tests/jest.setup.js (do not override it).
 
 describe('closeExpiredAuctions', () => {
   const { closeExpiredAuctions } = require('../jobs/auctionCron');

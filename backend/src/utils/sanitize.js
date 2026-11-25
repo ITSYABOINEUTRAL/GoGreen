@@ -8,7 +8,8 @@ const sanitizeHtml = require('sanitize-html');
  * @returns {string}
  */
 function sanitizeText(value) {
-  if (typeof value !== 'string') return value;
+  if (Array.isArray(value)) return value.map(sanitizeText);
+  if (typeof value !== 'string') return '';
   return sanitizeHtml(value, { allowedTags: [], allowedAttributes: {} }).trim();
 }
 

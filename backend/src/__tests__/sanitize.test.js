@@ -95,11 +95,20 @@ describe('sanitizeText', () => {
     expect(result).toBe('Unclosed tagsnested');
   });
 
-  test('returns non-string values unchanged', async () => {
-    expect(sanitizeText(null)).toBeNull();
-    expect(sanitizeText(undefined)).toBeUndefined();
-    expect(sanitizeText(123)).toBe(123);
-    expect(sanitizeText(true)).toBe(true);
+  test('returns empty string for non-string non-array values', async () => {
+    expect(sanitizeText(null)).toBe('');
+    expect(sanitizeText(undefined)).toBe('');
+    expect(sanitizeText(123)).toBe('');
+    expect(sanitizeText(true)).toBe('');
+  });
+
+  test('maps sanitizeText over array elements', async () => {
+    expect(sanitizeText(['<b>hi</b>', '<script>bad</script>', 'plain'])).toEqual(['hi', '', 'plain']);
+  });
+
+  test('returns empty string for tag-only input', async () => {
+    expect(sanitizeText('<b></b>')).toBe('');
+    expect(sanitizeText('<script>alert(1)</script>')).toBe('');
   });
 
   test('handles very long strings', async () => {

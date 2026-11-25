@@ -36,6 +36,14 @@ function contrastRatio(hexA, hexB) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+describe('GRADE_COLORS — required keys', () => {
+  test.each(['A', 'B', 'C', 'Ungraded'])('key %s is present', (key) => {
+    expect(GRADE_COLORS).toHaveProperty(key);
+    expect(GRADE_COLORS[key]).toHaveProperty('background');
+    expect(GRADE_COLORS[key]).toHaveProperty('color');
+  });
+});
+
 describe('GRADE_COLORS — WCAG AA contrast', () => {
   test.each(Object.entries(GRADE_COLORS))(
     'grade %s (%o) reaches at least 4.5:1 for normal text',

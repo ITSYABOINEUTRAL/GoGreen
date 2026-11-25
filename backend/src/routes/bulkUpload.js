@@ -35,7 +35,11 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
   let records;
   let detectedHeaders = null;
   try {
-    records = await new Promise((resolve, reject) => {
+    const REQUIRED_HEADERS = ['name', 'price', 'quantity'];
+    const ALLOWED_HEADERS = ['name', 'description', 'price', 'quantity', 'unit', 'category'];
+    let detectedHeaders = null;
+
+    const records = await new Promise((resolve, reject) => {
       const rows = [];
       const parser = parse(req.file.buffer, {
         columns: (hdrs) => { detectedHeaders = hdrs; return hdrs; },
@@ -45,6 +49,93 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
       parser.on('data', (row) => rows.push(row));
       parser.on('end', () => resolve(rows));
       parser.on('error', reject);
+    });
+    if (!detectedHeaders) {
+      return err(res, 400, 'CSV file is empty or has no header row', 'validation_error');
+    }
+
+    // Reject duplicate headers
+    const seen = new Set();
+    const duplicates = [];
+    for (const h of detectedHeaders) {
+      if (seen.has(h)) duplicates.push(h);
+      seen.add(h);
+    }
+    if (duplicates.length > 0) {
+      return err(res, 400, `Duplicate columns: ${[...new Set(duplicates)].join(', ')}`, 'duplicate_columns');
+    }
+
+    // Reject unknown headers
+    const unknownHeaders = detectedHeaders.filter((h) => !ALLOWED_HEADERS.includes(h));
+    if (unknownHeaders.length > 0) {
+      return err(res, 400, `Unknown columns: ${unknownHeaders.join(', ')}. Allowed: ${ALLOWED_HEADERS.join(', ')}`, 'unknown_columns');
+    }
+
+    const missingHeaders = REQUIRED_HEADERS.filter((h) => !detectedHeaders.includes(h));
+    if (missingHeaders.length > 0) {
+      return err(res, 400, `Missing required columns: ${missingHeaders.join(', ')}`, 'missing_columns');
+    }
+
+    // Limit to 500 rows
+    if (records.length > 500) {
+      return err(res, 400, 'Maximum 500 rows per upload', 'validation_error');
+    }
+
+    const insertStmt = db.prepare(
+      'INSERT INTO products (farmer_id, name, description, price, quantity, unit, category) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    const transaction = db.transaction((rows) => {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2; // +2 for 1-indexed and header row
+
+        // Validate required fields
+        if (!row.name || row.name.trim() === '') {
+          results.skipped++;
+          results.errors.push({ row: rowNum, error: 'name is required' });
+          continue;
+        }
+
+        const price = parseFloat(row.price);
+        if (isNaN(price) || price <= 0) {
+          results.skipped++;
+          results.errors.push({ row: rowNum, error: 'price must be a positive number' });
+          continue;
+        }
+
+        const quantity = parseInt(row.quantity, 10);
+        if (isNaN(quantity) || quantity <= 0) {
+          results.skipped++;
+          results.errors.push({ row: rowNum, error: 'quantity must be a positive integer' });
+          continue;
+        }
+
+        try {
+          insertStmt.run(
+            req.user.id,
+            row.name.trim(),
+            sanitizeText(row.description?.trim()) || null,
+            price,
+            quantity,
+            sanitizeText(row.unit?.trim()) || 'unit',
+            sanitizeText(row.category?.trim()) || 'other'
+          );
+          results.created++;
+        } catch (e) {
+          results.skipped++;
+          results.errors.push({ row: rowNum, error: e.message });
+        }
+      }
+    });
+
+    transaction(records);
+
+    res.json({
+      success: true,
+      created: results.created,
+      skipped: results.skipped,
+      errors: results.errors,
     });
   } catch (e) {
     return err(res, 400, 'Failed to parse CSV: ' + e.message, 'parse_error');

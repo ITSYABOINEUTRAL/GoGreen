@@ -36,7 +36,9 @@ export default function AuctionCard({ auction: initialAuction, onBid }) {
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(() => formatTimeLeft(initialAuction.ends_at));
+  const [pollError, setPollError] = useState(false);
   const optimisticBid = useRef(null);
+  const lastServerAuction = useRef(null);
 
   // Countdown timer
   useEffect(() => {
@@ -51,6 +53,8 @@ export default function AuctionCard({ auction: initialAuction, onBid }) {
       try {
         const res = await api.getAuction(auction.id);
         const fresh = res.data ?? res;
+        lastServerAuction.current = fresh;
+        setPollError(false);
         setAuction(prev => {
           // Keep optimistic bid if it's higher than server data
           if (optimisticBid.current && optimisticBid.current > (fresh.current_bid ?? fresh.start_price)) {
@@ -59,7 +63,9 @@ export default function AuctionCard({ auction: initialAuction, onBid }) {
           optimisticBid.current = null;
           return fresh;
         });
-      } catch {}
+      } catch {
+        setPollError(true);
+      }
     }, 5000);
     return () => clearInterval(id);
   }, [auction.id, auction.status]);
@@ -81,9 +87,9 @@ export default function AuctionCard({ auction: initialAuction, onBid }) {
       setAmount('');
       onBid();
     } catch (e) {
-      // Revert optimistic update on error
+      // Revert optimistic update to last known server state (or initial prop if no poll yet)
       optimisticBid.current = null;
-      setAuction(initialAuction);
+      setAuction(lastServerAuction.current ?? initialAuction);
       setMsg({ ok: false, text: e.message });
     }
     setLoading(false);
@@ -124,6 +130,11 @@ export default function AuctionCard({ auction: initialAuction, onBid }) {
       >
         {ended ? 'Auction ended' : loading ? 'Placing...' : 'Place Bid'}
       </button>
+      {pollError && (
+        <div style={{ ...s.msg, background: '#fff3cd', color: '#856404' }}>
+          Live updates paused
+        </div>
+      )}
       {msg && (
         <div style={{ ...s.msg, background: msg.ok ? '#d8f3dc' : '#fee', color: msg.ok ? '#2d6a4f' : '#c0392b' }}>
           {msg.text}
